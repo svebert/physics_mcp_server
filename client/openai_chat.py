@@ -11,7 +11,6 @@ from openai import OpenAI
 from prompt_toolkit import prompt
 from prompt_toolkit.key_binding import KeyBindings
 
-
 def _load_env() -> None:
     """Load env vars from local .env files for easier CLI usage."""
     cwd_env = Path.cwd() / ".env"
@@ -143,6 +142,7 @@ def _read_question() -> str:
 
     return prompt(
         "Frage eingeben (Enter senden, Alt+Enter Zeilenumbruch, Ctrl+T Tool-Set):\n",
+
         multiline=True,
         key_bindings=key_bindings,
     ).strip()

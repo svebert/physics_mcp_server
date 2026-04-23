@@ -36,3 +36,22 @@ def test_cantilever_udl_golden() -> None:
     assert math.isclose(out.max_bending_moment_nm, 4000.0, rel_tol=1e-6)
     expected_deflection = (2000 * (2**4)) / (8 * 210e9 * 5e-6)
     assert math.isclose(abs(out.max_deflection_m), expected_deflection, rel_tol=0.02)
+
+
+def test_simply_supported_point_max_moment_analytic_off_grid_position() -> None:
+    data = BeamInput(
+        case=BeamCase.SIMPLY_SUPPORTED_POINT,
+        length_m=10.0,
+        point_load_n=1000.0,
+        point_load_position_m=3.33,
+        samples=11,
+        youngs_modulus_pa=200e9,
+        second_moment_m4=8e-6,
+    )
+    out = solve_beam_case(data)
+
+    expected_max_moment = (1000.0 * 3.33 * (10.0 - 3.33)) / 10.0
+    sampled_peak = max(abs(v) for v in out.moment_nm)
+
+    assert math.isclose(out.max_bending_moment_nm, expected_max_moment, rel_tol=1e-9)
+    assert out.max_bending_moment_nm > sampled_peak

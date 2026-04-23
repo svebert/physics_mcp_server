@@ -163,6 +163,7 @@ Input UX in the client:
 - `Ctrl+T` opens Tool-Set selection while chatting.
 - `/tools` also switches Tool-Sets, `/exit` beendet den Client.
 
+
 The client uses the **Responses API** and supports these Tool-Sets:
 - `0`: kein Tool
 - `1`: nur `physics-mcp`

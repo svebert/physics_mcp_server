@@ -42,7 +42,7 @@ class BeamInput(BaseModel):
                 if self.case == BeamCase.CANTILEVER_POINT:
                     self.point_load_position_m = self.length_m
                 else:
-                    raise ValueError("point_load_position_m is required for simply supported point-load case")
+                    self.point_load_position_m = self.length_m / 2
             if not (0 <= self.point_load_position_m <= self.length_m):
                 raise ValueError("point_load_position_m must be between 0 and length_m")
             if self.case == BeamCase.CANTILEVER_POINT and self.point_load_position_m != self.length_m:

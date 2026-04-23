@@ -28,6 +28,19 @@ def test_missing_point_load_value_rejected() -> None:
         )
 
 
+
+
+def test_simply_supported_point_defaults_to_midspan_when_position_missing() -> None:
+    payload = {
+        "case": "simply_supported_point",
+        "length_m": 6.0,
+        "point_load_n": 12_000.0,
+        "youngs_modulus_pa": 210e9,
+        "second_moment_m4": 8.5e-6,
+    }
+    beam = BeamInput.model_validate(payload)
+    assert beam.point_load_position_m == 3.0
+
 def test_cantilever_point_requires_tip_load_in_v01() -> None:
     with pytest.raises(ValidationError):
         BeamInput(

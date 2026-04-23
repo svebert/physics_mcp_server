@@ -173,6 +173,7 @@ The client uses the **Responses API** and supports these Tool-Sets:
 If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/health` and prints a clear startup error if the server is offline.
 
 If the model produces invalid tool arguments, the client returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
+Der Dev-Tool-Endpunkt normalisiert außerdem häufige Kurzschreibweisen aus LLM-Tool-Calls (z. B. `l`/`e`/`i`, `point_load_kn`, `udl_kn_per_m`) und kann den Lastfall bei fehlendem `case` aus den Lastparametern ableiten.
 
 
 Beispiel-Prompts (Deutsch):
@@ -206,7 +207,8 @@ This creates a small single-service deployment suitable for home-server use. Put
 - Euler-Bernoulli assumptions only.
 - No shear deformation (no Timoshenko beam).
 - No variable section/material.
-- Cantilever point load only at free tip.
+- Cantilever point load only at free tip (defaults to x=length if omitted).
+- Simply supported point load defaults to midspan if load position is omitted.
 - UDL assumed full-length only.
 - No unit conversion layer (SI input/output only).
 

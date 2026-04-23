@@ -19,10 +19,52 @@ logger = logging.getLogger("physics-mcp")
 mcp = FastMCP("physics-mcp")
 
 
+def _normalize_solve_beam_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept common shorthand keys from LLM tool-calls and map to API schema."""
+    normalized = dict(payload)
+    aliases = {
+        "l": "length_m",
+        "length": "length_m",
+        "span_m": "length_m",
+        "e": "youngs_modulus_pa",
+        "youngs_modulus": "youngs_modulus_pa",
+        "youngs_modulus_gpa": "youngs_modulus_pa",
+        "i": "second_moment_m4",
+        "second_moment": "second_moment_m4",
+        "f": "point_load_n",
+        "p": "point_load_n",
+        "point_load": "point_load_n",
+        "point_load_kn": "point_load_n",
+        "x": "point_load_position_m",
+        "a": "point_load_position_m",
+        "load_position_m": "point_load_position_m",
+        "udl": "udl_n_per_m",
+        "q": "udl_n_per_m",
+        "udl_kn_per_m": "udl_n_per_m",
+    }
+    for source, target in aliases.items():
+        if source in normalized and target not in normalized:
+            normalized[target] = normalized[source]
+
+    if "youngs_modulus_gpa" in normalized and "youngs_modulus_pa" in normalized:
+        normalized["youngs_modulus_pa"] = float(normalized["youngs_modulus_pa"]) * 1e9
+    if "point_load_kn" in normalized and "point_load_n" in normalized:
+        normalized["point_load_n"] = float(normalized["point_load_n"]) * 1e3
+    if "udl_kn_per_m" in normalized and "udl_n_per_m" in normalized:
+        normalized["udl_n_per_m"] = float(normalized["udl_n_per_m"]) * 1e3
+
+    if "case" not in normalized:
+        if "point_load_n" in normalized:
+            normalized["case"] = "simply_supported_point"
+        elif "udl_n_per_m" in normalized:
+            normalized["case"] = "simply_supported_udl"
+    return normalized
+
+
 @mcp.tool()
 def solve_beam_case_tool(payload: dict[str, Any]) -> dict[str, Any]:
     """Solve one beam case from physics_core v0.1."""
-    data = BeamInput.model_validate(payload)
+    data = BeamInput.model_validate(_normalize_solve_beam_payload(payload))
     result = solve_beam_case(data)
     return result.model_dump()
 

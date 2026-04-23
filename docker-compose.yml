@@ -1,0 +1,12 @@
+services:
+  physics-mcp:
+    build: .
+    container_name: physics-mcp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - PHYSICS_MCP_HOST=0.0.0.0
+      - PHYSICS_MCP_PORT=8080

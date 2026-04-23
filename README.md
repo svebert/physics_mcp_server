@@ -160,15 +160,28 @@ Input UX in the client:
 - Arrow keys navigate input history and cursor position.
 - `Alt+Enter` inserts a newline.
 - `Enter` submits the message.
-
-The client now checks `PHYSICS_MCP_URL` via `/health` before sending your question and prints a clear startup error if the server is offline.
-
-If the model produces invalid tool arguments, the client now returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
+- `Ctrl+T` opens Tool-Set selection while chatting.
+- `/tools` also switches Tool-Sets, `/exit` beendet den Client.
 
 
-Ask something like:
+The client uses the **Responses API** and supports these Tool-Sets:
+- `0`: kein Tool
+- `1`: nur `physics-mcp`
+- `2`: nur Websearch (`web_search_preview`)
+- `3`: Websearch + `physics-mcp`
 
-- "For a 6 m simply supported steel beam (E=210e9 Pa, I=8.5e-6 m^4) with a 12 kN center point load, what are the reactions, maximum moment, and maximum deflection?"
+If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/health` and prints a clear startup error if the server is offline.
+
+If the model produces invalid tool arguments, the client returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
+
+
+Beispiel-Prompts (Deutsch):
+
+- "Für einen 6-m-Einfeldträger (E=210e9 Pa, I=8.5e-6 m^4) mit 12 kN Mittellast: Lagerreaktionen, maximales Biegemoment und maximale Durchbiegung."
+- "Welche Annahmen macht das Beam-Modell und wo liegen die Grenzen für reale Stahlträger?"
+- "Vergleiche einfach gelagerten Träger mit Einzellast vs. UDL bei gleicher Gesamtlast und gib die Deflektionsmaxima an."
+- "Suche kurz im Web typische E-Module für Baustahl und rechne dann ein Beispiel für 5 m Spannweite."
+- "Erzeuge mir eine JSON-Anfrage für `/dev/tools/solve_beam_case` für einen Kragträger mit UDL und 81 Samples."
 
 ## Deploy on Alpine Linux mini PC
 

@@ -25,45 +25,54 @@ _load_env()
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 
-TOOLS: list[dict[str, Any]] = [
+MCP_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
-        "function": {
-            "name": "solve_beam_case",
-            "description": "Solve one supported beam case and return reactions, maxima, and curves.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "case": {"type": "string"},
-                    "length_m": {"type": "number"},
-                    "youngs_modulus_pa": {"type": "number"},
-                    "second_moment_m4": {"type": "number"},
-                    "point_load_n": {"type": "number"},
-                    "point_load_position_m": {"type": "number"},
-                    "udl_n_per_m": {"type": "number"},
-                    "samples": {"type": "integer"},
-                },
-                "required": ["case", "length_m", "youngs_modulus_pa", "second_moment_m4"],
+        "name": "solve_beam_case",
+        "description": "Solve one supported beam case and return reactions, maxima, and curves.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "case": {"type": "string"},
+                "length_m": {"type": "number"},
+                "youngs_modulus_pa": {"type": "number"},
+                "second_moment_m4": {"type": "number"},
+                "point_load_n": {"type": "number"},
+                "point_load_position_m": {"type": "number"},
+                "udl_n_per_m": {"type": "number"},
+                "samples": {"type": "integer"},
             },
+            "required": ["case", "length_m", "youngs_modulus_pa", "second_moment_m4"],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_supported_cases",
-            "description": "Get all case names supported by physics_core v0.1.",
-            "parameters": {"type": "object", "properties": {}},
-        },
+        "name": "get_supported_cases",
+        "description": "Get all case names supported by physics_core v0.1.",
+        "parameters": {"type": "object", "properties": {}},
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_model_assumptions",
-            "description": "Get assumptions and limits of the beam model.",
-            "parameters": {"type": "object", "properties": {}},
-        },
+        "name": "get_model_assumptions",
+        "description": "Get assumptions and limits of the beam model.",
+        "parameters": {"type": "object", "properties": {}},
     },
 ]
+
+WEB_SEARCH_TOOLS: list[dict[str, Any]] = [{"type": "web_search_preview"}]
+
+TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
+    "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False},
+    "1": {"label": "Nur physics-mcp", "tools": MCP_TOOLS, "needs_mcp": True},
+    "2": {"label": "Nur Websearch", "tools": WEB_SEARCH_TOOLS, "needs_mcp": False},
+    "3": {
+        "label": "Websearch + physics-mcp",
+        "tools": [*WEB_SEARCH_TOOLS, *MCP_TOOLS],
+        "needs_mcp": True,
+    },
+}
+
+MCP_TOOL_NAMES = {tool["name"] for tool in MCP_TOOLS if tool["type"] == "function"}
 
 
 def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -126,12 +135,69 @@ def _read_question() -> str:
     def _(event: Any) -> None:
         event.current_buffer.insert_text("\n")
 
+    @key_bindings.add("c-t")
+    def _(event: Any) -> None:
+        event.current_buffer.text = "/tools"
+        event.current_buffer.validate_and_handle()
+
     return prompt(
-        "Ask an engineering question (Enter to send, Alt+Enter for newline):\n",
+        "Frage eingeben (Enter senden, Alt+Enter Zeilenumbruch, Ctrl+T Tool-Set):\n",
+
         multiline=True,
         key_bindings=key_bindings,
     ).strip()
 
+
+def _select_toolset_interactive() -> str:
+    print("\nTool-Set auswählen:")
+    for key, option in TOOLSET_OPTIONS.items():
+        print(f"  {key}: {option['label']}")
+
+    selection = prompt("Auswahl [0-3, Default 1]: ").strip() or "1"
+    if selection not in TOOLSET_OPTIONS:
+        print(f"Ungültige Auswahl '{selection}', nehme Default 1 (Nur physics-mcp).")
+        return "1"
+    return selection
+
+
+def _invoke_tools_for_response(client: OpenAI, response: Any, tools: list[dict[str, Any]]) -> Any:
+    current_response = response
+    while True:
+        function_calls = [item for item in current_response.output if item.type == "function_call"]
+        if not function_calls:
+            return current_response
+
+        tool_outputs: list[dict[str, Any]] = []
+        for call in function_calls:
+            name = call.name
+            args = json.loads(call.arguments or "{}")
+            if name in MCP_TOOL_NAMES:
+                outcome = invoke_server_tool(name, args)
+            else:
+                outcome = {
+                    "ok": False,
+                    "error": {
+                        "status_code": None,
+                        "tool": name,
+                        "input": args,
+                        "details": f"Unknown tool '{name}'",
+                    },
+                }
+
+            tool_outputs.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": call.call_id,
+                    "output": json.dumps(outcome),
+                }
+            )
+
+        current_response = client.responses.create(
+            model=DEFAULT_MODEL,
+            input=tool_outputs,
+            tools=tools,
+            previous_response_id=current_response.id,
+        )
 
 
 def main() -> None:
@@ -142,35 +208,40 @@ def main() -> None:
         )
 
     client = OpenAI(api_key=api_key)
-    _ensure_server_is_reachable()
-    question = _read_question()
+    toolset_key = _select_toolset_interactive()
+    toolset = TOOLSET_OPTIONS[toolset_key]
+    if toolset["needs_mcp"]:
+        _ensure_server_is_reachable()
+    previous_response_id: str | None = None
 
-    messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
+    print(
+        f"\nAktives Tool-Set: {toolset['label']}. "
+        "Befehle: /exit beendet, /tools wechselt Tool-Set."
+    )
     while True:
-        completion = client.chat.completions.create(model=DEFAULT_MODEL, messages=messages, tools=TOOLS)
-        msg = completion.choices[0].message
-        tool_calls = msg.tool_calls or []
-
-        if not tool_calls:
-            print("\nAnswer:\n")
-            print(msg.content)
+        question = _read_question()
+        if not question:
+            continue
+        if question.lower() in {"/exit", "exit", "quit"}:
             break
+        if question.lower() == "/tools":
+            toolset_key = _select_toolset_interactive()
+            toolset = TOOLSET_OPTIONS[toolset_key]
+            if toolset["needs_mcp"]:
+                _ensure_server_is_reachable()
+            print(f"\nAktives Tool-Set: {toolset['label']}")
+            continue
 
-        messages.append(msg.model_dump(exclude_none=True))
-        for call in tool_calls:
-            name = call.function.name
-            args = json.loads(call.function.arguments or "{}")
-            outcome = invoke_server_tool(name, args)
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "name": name,
-                    "content": json.dumps(outcome),
-
-                }
-            )
+        response = client.responses.create(
+            model=DEFAULT_MODEL,
+            input=question,
+            tools=toolset["tools"],
+            previous_response_id=previous_response_id,
+        )
+        response = _invoke_tools_for_response(client, response, toolset["tools"])
+        previous_response_id = response.id
+        print("\nAntwort:\n")
+        print(response.output_text)
 
 
 if __name__ == "__main__":

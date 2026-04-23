@@ -1,9 +1,8 @@
 from __future__ import annotations
-
 from fastapi.testclient import TestClient
-
 from mcp_server.app import (
     app,
+
     get_model_assumptions_tool,
     get_supported_cases_tool,
     solve_beam_case_tool,
@@ -33,7 +32,6 @@ def test_solve_tool_integration() -> None:
     assert result["case"] == "simply_supported_udl"
     assert result["max_bending_moment_nm"] > 0
     assert len(result["x_m"]) == len(result["moment_nm"]) == len(result["deflection_m"])
-
 
 def test_dev_tool_returns_422_on_invalid_payload() -> None:
     client = TestClient(app)

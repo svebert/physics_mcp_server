@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from prompt_toolkit import prompt
 
-
 def _load_env() -> None:
     """Load env vars from local .env files for easier CLI usage."""
     cwd_env = Path.cwd() / ".env"
@@ -93,6 +92,7 @@ def _read_question() -> str:
     ).strip()
 
 
+
 def main() -> None:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -119,12 +119,14 @@ def main() -> None:
             name = call.function.name
             args = json.loads(call.function.arguments or "{}")
             outcome = invoke_server_tool(name, args)
+
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": call.id,
                     "name": name,
                     "content": json.dumps(outcome),
+
                 }
             )
 

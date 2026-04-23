@@ -163,6 +163,7 @@ Input UX in the client:
 
 If the model produces invalid tool arguments, the client now returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
 
+
 Ask something like:
 
 - "For a 6 m simply supported steel beam (E=210e9 Pa, I=8.5e-6 m^4) with a 12 kN center point load, what are the reactions, maximum moment, and maximum deflection?"

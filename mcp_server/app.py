@@ -63,6 +63,7 @@ def dev_tool(tool_name: str, payload: dict[str, Any] | None = None) -> Any:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     raise HTTPException(status_code=404, detail=f"Unknown tool {tool_name}")
 
 

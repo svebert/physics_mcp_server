@@ -1,0 +1,9 @@
+{
+  "case": "simply_supported_point",
+  "length_m": 6.0,
+  "point_load_n": 12000.0,
+  "point_load_position_m": 3.0,
+  "youngs_modulus_pa": 210000000000.0,
+  "second_moment_m4": 0.0000085,
+  "samples": 51
+}

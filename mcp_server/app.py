@@ -22,10 +22,7 @@ mcp = FastMCP("physics-mcp")
 @mcp.tool()
 def solve_beam_case_tool(payload: dict[str, Any]) -> dict[str, Any]:
     """Solve one beam case from physics_core v0.1."""
-    try:
-        data = BeamInput.model_validate(payload)
-    except ValidationError as exc:
-        raise ValueError(f"Invalid beam input: {exc}") from exc
+    data = BeamInput.model_validate(payload)
     result = solve_beam_case(data)
     return result.model_dump()
 
@@ -55,12 +52,18 @@ def health() -> dict[str, str]:
 @app.post("/dev/tools/{tool_name}")
 def dev_tool(tool_name: str, payload: dict[str, Any] | None = None) -> Any:
     payload = payload or {}
-    if tool_name == "solve_beam_case":
-        return solve_beam_case_tool(payload)
-    if tool_name == "get_supported_cases":
-        return get_supported_cases_tool()
-    if tool_name == "get_model_assumptions":
-        return get_model_assumptions_tool()
+    try:
+        if tool_name == "solve_beam_case":
+            return solve_beam_case_tool(payload)
+        if tool_name == "get_supported_cases":
+            return get_supported_cases_tool()
+        if tool_name == "get_model_assumptions":
+            return get_model_assumptions_tool()
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     raise HTTPException(status_code=404, detail=f"Unknown tool {tool_name}")
 
 

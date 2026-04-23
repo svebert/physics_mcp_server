@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
-
+from prompt_toolkit import prompt
 
 def _load_env() -> None:
     """Load env vars from local .env files for easier CLI usage."""
@@ -23,7 +23,6 @@ def _load_env() -> None:
 _load_env()
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
-
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -66,11 +65,32 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> Any:
+def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     with httpx.Client(timeout=30) as client:
         response = client.post(f"{DEFAULT_SERVER}/dev/tools/{tool_name}", json=args)
-        response.raise_for_status()
-        return response.json()
+        if response.is_success:
+            return {"ok": True, "result": response.json()}
+        try:
+            details: Any = response.json()
+        except ValueError:
+            details = response.text
+        return {
+            "ok": False,
+            "error": {
+                "status_code": response.status_code,
+                "tool": tool_name,
+                "input": args,
+                "details": details,
+            },
+        }
+
+
+def _read_question() -> str:
+    return prompt(
+        "Ask an engineering question (Alt+Enter for newline, Ctrl+D to send):\n",
+        multiline=True,
+    ).strip()
+
 
 
 def main() -> None:
@@ -80,9 +100,8 @@ def main() -> None:
             "OPENAI_API_KEY is missing. Set it in your environment or in .env (see .env.example)."
         )
 
-
     client = OpenAI(api_key=api_key)
-    question = input("Ask an engineering question: ").strip()
+    question = _read_question()
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
     while True:
@@ -99,13 +118,15 @@ def main() -> None:
         for call in tool_calls:
             name = call.function.name
             args = json.loads(call.function.arguments or "{}")
-            result = invoke_server_tool(name, args)
+            outcome = invoke_server_tool(name, args)
+
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": call.id,
                     "name": name,
-                    "content": json.dumps(result),
+                    "content": json.dumps(outcome),
+
                 }
             )
 

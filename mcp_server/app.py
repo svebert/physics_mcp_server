@@ -6,7 +6,7 @@ import unicodedata
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from mcp.server.fastmcp import FastMCP
 from pydantic import ValidationError
 
@@ -14,7 +14,6 @@ from physics_core import ASSUMPTIONS_V1, BeamInput, get_supported_cases, solve_b
 from mcp_server.logging_config import configure_logging
 from mcp_server.middleware import RateLimitHook
 
-configure_logging()
 logger = logging.getLogger("physics-mcp")
 
 mcp = FastMCP("physics-mcp")
@@ -162,6 +161,8 @@ def get_model_assumptions_tool() -> list[str]:
     return ASSUMPTIONS_V1
 
 
+LOG_CONFIG = configure_logging()
+
 app = FastAPI(title="physics-mcp", version="0.1.0")
 rate_limit_hook = RateLimitHook()
 app.middleware("http")(rate_limit_hook)
@@ -173,7 +174,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/dev/tools/{tool_name}")
-def dev_tool(tool_name: str, payload: dict[str, Any] | None = None) -> Any:
+def dev_tool(tool_name: str, request: Request, payload: dict[str, Any] | None = None) -> Any:
     payload = payload or {}
     try:
         if tool_name == "solve_beam_case":
@@ -185,8 +186,14 @@ def dev_tool(tool_name: str, payload: dict[str, Any] | None = None) -> Any:
     except ValidationError as exc:
         normalized = _normalize_solve_beam_payload(payload) if tool_name == "solve_beam_case" else payload
         logger.warning(
-            "Validation error in dev tool call",
-            extra={"tool_name": tool_name, "payload": payload, "normalized_payload": normalized, "errors": exc.errors()},
+            "Validation error in dev tool call | method=%s path=%s client=%s tool=%s payload=%s normalized_payload=%s errors=%s",
+            request.method,
+            request.url.path,
+            request.client.host if request.client else "unknown",
+            tool_name,
+            payload,
+            normalized,
+            exc.errors(),
         )
         raise HTTPException(
             status_code=422,
@@ -200,7 +207,15 @@ def dev_tool(tool_name: str, payload: dict[str, Any] | None = None) -> Any:
             },
         ) from exc
     except ValueError as exc:
-        logger.warning("Domain validation error in dev tool call", extra={"tool_name": tool_name, "payload": payload, "error": str(exc)})
+        logger.warning(
+            "Domain validation error in dev tool call | method=%s path=%s client=%s tool=%s payload=%s error=%s",
+            request.method,
+            request.url.path,
+            request.client.host if request.client else "unknown",
+            tool_name,
+            payload,
+            str(exc),
+        )
         raise HTTPException(status_code=422, detail={"message": str(exc), "tool": tool_name}) from exc
 
     raise HTTPException(status_code=404, detail=f"Unknown tool {tool_name}")
@@ -213,7 +228,7 @@ def run() -> None:
     host = os.getenv("PHYSICS_MCP_HOST", "0.0.0.0")
     port = int(os.getenv("PHYSICS_MCP_PORT", "8080"))
     logger.info("Starting physics-mcp server", extra={"host": host, "port": port})
-    uvicorn.run("mcp_server.app:app", host=host, port=port, log_level="info")
+    uvicorn.run("mcp_server.app:app", host=host, port=port, log_level="info", log_config=LOG_CONFIG)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,26 @@ cp .env.example .env
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 
+
+## How to get an OpenAI API key
+
+1. Create or log into your OpenAI account at https://platform.openai.com/.
+2. Open **API keys** in the dashboard: https://platform.openai.com/api-keys.
+3. Create a new secret key and copy it once (it is shown only at creation).
+4. Add it to your local environment:
+
+```bash
+export OPENAI_API_KEY='sk-...'
+```
+
+Optional (persist in your shell profile):
+
+```bash
+echo "export OPENAI_API_KEY='sk-...'" >> ~/.bashrc
+source ~/.bashrc
+```
+
+
 ## Run tests
 
 ```bash
@@ -83,7 +103,7 @@ pytest
 ```bash
 physics-mcp-server
 # or
-python -m mcp_server.app
+python3 -m mcp_server.app
 ```
 
 ### Quick local smoke test
@@ -109,6 +129,23 @@ With server running:
   "samples": 51
 }
 ```
+
+Equivalent `curl` command:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8080/dev/tools/solve_beam_case" \
+  -H 'content-type: application/json' \
+  -d '{
+    "case": "simply_supported_point",
+    "length_m": 6.0,
+    "point_load_n": 12000.0,
+    "point_load_position_m": 3.0,
+    "youngs_modulus_pa": 210000000000.0,
+    "second_moment_m4": 0.0000085,
+    "samples": 51
+  }'
+```
+
 
 ## OpenAI test client
 

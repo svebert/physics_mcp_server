@@ -20,7 +20,8 @@ def test_simply_supported_point_center_load_golden() -> None:
     assert math.isclose(out.reactions_n["left"], 5_000.0, rel_tol=1e-6)
     assert math.isclose(out.reactions_n["right"], 5_000.0, rel_tol=1e-6)
     assert math.isclose(out.max_bending_moment_nm, 10_000.0, rel_tol=1e-3)
-    assert math.isclose(abs(out.max_deflection_m), 0.0104, rel_tol=0.05)
+    assert math.isclose(abs(out.max_deflection_m), 0.0083333333, rel_tol=0.02)
+
 
 
 def test_cantilever_udl_golden() -> None:

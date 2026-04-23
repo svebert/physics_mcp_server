@@ -36,6 +36,9 @@ packages = ["physics_core", "mcp_server", "client"]
 addopts = "-q"
 testpaths = ["tests"]
 
+pythonpath = ["."]
+
+
 [tool.ruff]
 line-length = 100
 

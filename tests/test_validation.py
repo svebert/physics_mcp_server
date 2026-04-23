@@ -28,6 +28,30 @@ def test_missing_point_load_value_rejected() -> None:
         )
 
 
+def test_zero_udl_is_allowed_for_point_load_cases() -> None:
+    beam = BeamInput(
+        case=BeamCase.SIMPLY_SUPPORTED_POINT,
+        length_m=6.0,
+        point_load_n=12_000.0,
+        point_load_position_m=3.0,
+        udl_n_per_m=0.0,
+        youngs_modulus_pa=210e9,
+        second_moment_m4=8.5e-6,
+    )
+    assert beam.udl_n_per_m == 0.0
+
+
+def test_zero_udl_is_rejected_for_udl_cases() -> None:
+    with pytest.raises(ValidationError):
+        BeamInput(
+            case=BeamCase.SIMPLY_SUPPORTED_UDL,
+            length_m=5.0,
+            udl_n_per_m=0.0,
+            youngs_modulus_pa=200e9,
+            second_moment_m4=8e-6,
+        )
+
+
 
 
 def test_simply_supported_point_defaults_to_midspan_when_position_missing() -> None:

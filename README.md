@@ -72,6 +72,7 @@ cp .env.example .env
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 
+
 ## How to get an OpenAI API key
 
 1. Create or log into your OpenAI account at https://platform.openai.com/.
@@ -89,6 +90,7 @@ Optional (persist in your shell profile):
 echo "export OPENAI_API_KEY='sk-...'" >> ~/.bashrc
 source ~/.bashrc
 ```
+
 
 ## Run tests
 
@@ -143,6 +145,7 @@ curl -sS -X POST "http://127.0.0.1:8080/dev/tools/solve_beam_case" \
     "samples": 51
   }'
 ```
+
 
 ## OpenAI test client
 

@@ -23,6 +23,7 @@ def test_simply_supported_point_center_load_golden() -> None:
     assert math.isclose(abs(out.max_deflection_m), 0.0083333333, rel_tol=0.02)
 
 
+
 def test_cantilever_udl_golden() -> None:
     data = BeamInput(
         case=BeamCase.CANTILEVER_UDL,

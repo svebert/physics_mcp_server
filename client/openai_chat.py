@@ -9,6 +9,7 @@ import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
 from prompt_toolkit import prompt
+from prompt_toolkit.key_binding import KeyBindings
 
 def _load_env() -> None:
     """Load env vars from local .env files for easier CLI usage."""
@@ -86,9 +87,20 @@ def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_question() -> str:
+    key_bindings = KeyBindings()
+
+    @key_bindings.add("enter")
+    def _(event: Any) -> None:
+        event.current_buffer.validate_and_handle()
+
+    @key_bindings.add("escape", "enter")
+    def _(event: Any) -> None:
+        event.current_buffer.insert_text("\n")
+
     return prompt(
-        "Ask an engineering question (Alt+Enter for newline, Ctrl+D to send):\n",
+        "Ask an engineering question (Enter to send, Alt+Enter for newline):\n",
         multiline=True,
+        key_bindings=key_bindings,
     ).strip()
 
 

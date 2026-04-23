@@ -73,6 +73,7 @@ cp .env.example .env
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 
+
 ## How to get an OpenAI API key
 
 1. Create or log into your OpenAI account at https://platform.openai.com/.
@@ -95,6 +96,7 @@ If `physics-mcp-client` is not found, reinstall in your active venv:
 
 ```bash
 python3 -m pip install -e '.[dev]'
+
 ```
 
 ## Run the MCP server locally
@@ -154,6 +156,7 @@ Run with MCP server available locally:
 physics-mcp-client
 # fallback without console script:
 python3 -m client.openai_chat
+
 ```
 
 Ask something like:

@@ -24,6 +24,7 @@ _load_env()
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 
+
 TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -78,6 +79,7 @@ def main() -> None:
         raise RuntimeError(
             "OPENAI_API_KEY is missing. Set it in your environment or in .env (see .env.example)."
         )
+
 
     client = OpenAI(api_key=api_key)
     question = input("Ask an engineering question: ").strip()

@@ -38,3 +38,29 @@ def test_cantilever_point_requires_tip_load_in_v01() -> None:
             youngs_modulus_pa=1.0,
             second_moment_m4=1.0,
         )
+
+
+def test_case_alias_cantilever_maps_to_point_case() -> None:
+    payload = {
+        "case": "cantilever",
+        "length_m": 2.0,
+        "point_load_n": 100.0,
+        "youngs_modulus_pa": 1.0,
+        "second_moment_m4": 1.0,
+    }
+    beam = BeamInput.model_validate(payload)
+    assert beam.case == BeamCase.CANTILEVER_POINT
+    assert beam.point_load_position_m == beam.length_m
+
+
+def test_case_alias_simply_supported_maps_to_point_case() -> None:
+    payload = {
+        "case": "simply_supported",
+        "length_m": 2.0,
+        "point_load_n": 100.0,
+        "point_load_position_m": 1.0,
+        "youngs_modulus_pa": 1.0,
+        "second_moment_m4": 1.0,
+    }
+    beam = BeamInput.model_validate(payload)
+    assert beam.case == BeamCase.SIMPLY_SUPPORTED_POINT

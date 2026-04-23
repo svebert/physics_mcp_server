@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class BeamCase(str, Enum):
@@ -21,6 +21,17 @@ class BeamInput(BaseModel):
     point_load_position_m: float | None = Field(default=None, ge=0)
     udl_n_per_m: float | None = Field(default=None, gt=0)
     samples: int = Field(default=41, ge=11, le=401)
+
+    @field_validator("case", mode="before")
+    @classmethod
+    def normalize_case_aliases(cls, value: BeamCase | str) -> BeamCase | str:
+        if isinstance(value, str):
+            aliases = {
+                "cantilever": BeamCase.CANTILEVER_POINT.value,
+                "simply_supported": BeamCase.SIMPLY_SUPPORTED_POINT.value,
+            }
+            return aliases.get(value.strip().lower(), value)
+        return value
 
     @model_validator(mode="after")
     def validate_case_loads(self) -> "BeamInput":

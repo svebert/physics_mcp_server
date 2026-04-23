@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import unicodedata
 from typing import Any
 
 import uvicorn
@@ -19,32 +20,112 @@ logger = logging.getLogger("physics-mcp")
 mcp = FastMCP("physics-mcp")
 
 
+def _normalize_key(raw_key: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(raw_key)).encode("ascii", "ignore").decode("ascii")
+    normalized = "".join(ch if ch.isalnum() else "_" for ch in text.lower())
+    return normalized.strip("_")
+
+
+def _normalize_case_alias(value: str) -> str:
+    normalized = _normalize_key(value)
+    case_aliases = {
+        "simply_supported_point": "simply_supported_point",
+        "simply_supported_udl": "simply_supported_udl",
+        "cantilever_point": "cantilever_point",
+        "cantilever_udl": "cantilever_udl",
+        # German
+        "einfach_gelagert_einzellast": "simply_supported_point",
+        "einfach_gelagert_punktlast": "simply_supported_point",
+        "einfach_gelagert_streckenlast": "simply_supported_udl",
+        "kragtrager_einzellast": "cantilever_point",
+        "kragtrager_punktlast": "cantilever_point",
+        "kragtrager_streckenlast": "cantilever_udl",
+        # Spanish
+        "viga_apoyada_carga_puntual": "simply_supported_point",
+        "viga_apoyada_carga_distribuida": "simply_supported_udl",
+        "voladizo_carga_puntual": "cantilever_point",
+        "voladizo_carga_distribuida": "cantilever_udl",
+        # French
+        "appui_simple_charge_ponctuelle": "simply_supported_point",
+        "appui_simple_charge_repartie": "simply_supported_udl",
+        "console_charge_ponctuelle": "cantilever_point",
+        "console_charge_repartie": "cantilever_udl",
+    }
+    if normalized in case_aliases:
+        return case_aliases[normalized]
+
+    if "einfach" in normalized and "gelag" in normalized and ("punkt" in normalized or "einzel" in normalized):
+        return "simply_supported_point"
+    if "einfach" in normalized and "gelag" in normalized and ("strecken" in normalized or "udl" in normalized):
+        return "simply_supported_udl"
+    if ("krag" in normalized or "cantilever" in normalized) and ("punkt" in normalized or "point" in normalized):
+        return "cantilever_point"
+    if ("krag" in normalized or "cantilever" in normalized) and ("strecken" in normalized or "udl" in normalized):
+        return "cantilever_udl"
+    return value
+
+
 def _normalize_solve_beam_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Accept common shorthand keys from LLM tool-calls and map to API schema."""
+    """Accept shorthand, multilingual, and nested keys from LLM tool-calls and map to API schema."""
     normalized = dict(payload)
-    aliases = {
+
+    # Common shape from some clients: {"input": {...}} or {"arguments": {...}}
+    nested = normalized.get("input") or normalized.get("arguments")
+    if isinstance(nested, dict):
+        normalized = {**nested, **{k: v for k, v in normalized.items() if k not in {"input", "arguments"}}}
+
+    alias_map: dict[str, str] = {
         "l": "length_m",
         "length": "length_m",
+        "lange": "length_m",
+        "laenge": "length_m",
+        "span": "length_m",
         "span_m": "length_m",
+        "beam_length": "length_m",
         "e": "youngs_modulus_pa",
         "youngs_modulus": "youngs_modulus_pa",
+        "elastic_modulus": "youngs_modulus_pa",
+        "elastizitatsmodul": "youngs_modulus_pa",
+        "elastizitaetsmodul": "youngs_modulus_pa",
         "youngs_modulus_gpa": "youngs_modulus_pa",
         "i": "second_moment_m4",
         "second_moment": "second_moment_m4",
+        "area_moment": "second_moment_m4",
+        "flachentragheitsmoment": "second_moment_m4",
+        "flaechentraegheitsmoment": "second_moment_m4",
         "f": "point_load_n",
         "p": "point_load_n",
         "point_load": "point_load_n",
         "point_load_kn": "point_load_n",
+        "punktlast": "point_load_n",
+        "einzellast": "point_load_n",
         "x": "point_load_position_m",
         "a": "point_load_position_m",
+        "load_position": "point_load_position_m",
         "load_position_m": "point_load_position_m",
+        "position": "point_load_position_m",
+        "lastposition": "point_load_position_m",
         "udl": "udl_n_per_m",
         "q": "udl_n_per_m",
         "udl_kn_per_m": "udl_n_per_m",
+        "streckenlast": "udl_n_per_m",
+        "distributed_load": "udl_n_per_m",
+        "case": "case",
+        "lastfall": "case",
+        "typ": "case",
+        "beam_case": "case",
+        "samples": "samples",
+        "stutzstellen": "samples",
     }
-    for source, target in aliases.items():
-        if source in normalized and target not in normalized:
-            normalized[target] = normalized[source]
+
+    for key in list(normalized.keys()):
+        canonical_key = _normalize_key(key)
+        target = alias_map.get(canonical_key)
+        if target and target not in normalized:
+            normalized[target] = normalized[key]
+
+    if "case" in normalized and isinstance(normalized["case"], str):
+        normalized["case"] = _normalize_case_alias(normalized["case"])
 
     if "youngs_modulus_gpa" in normalized and "youngs_modulus_pa" in normalized:
         normalized["youngs_modulus_pa"] = float(normalized["youngs_modulus_pa"]) * 1e9
@@ -102,9 +183,25 @@ def dev_tool(tool_name: str, payload: dict[str, Any] | None = None) -> Any:
         if tool_name == "get_model_assumptions":
             return get_model_assumptions_tool()
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        normalized = _normalize_solve_beam_payload(payload) if tool_name == "solve_beam_case" else payload
+        logger.warning(
+            "Validation error in dev tool call",
+            extra={"tool_name": tool_name, "payload": payload, "normalized_payload": normalized, "errors": exc.errors()},
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Invalid tool payload",
+                "tool": tool_name,
+                "errors": exc.errors(),
+                "received_keys": sorted(list(payload.keys())),
+                "normalized_keys": sorted(list(normalized.keys())),
+                "hint": "Use one of case=[simply_supported_point, simply_supported_udl, cantilever_point, cantilever_udl] and SI units.",
+            },
+        ) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        logger.warning("Domain validation error in dev tool call", extra={"tool_name": tool_name, "payload": payload, "error": str(exc)})
+        raise HTTPException(status_code=422, detail={"message": str(exc), "tool": tool_name}) from exc
 
     raise HTTPException(status_code=404, detail=f"Unknown tool {tool_name}")
 

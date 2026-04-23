@@ -50,3 +50,51 @@ def test_dev_tool_accepts_shorthand_payload_and_infers_case() -> None:
     assert body["case"] == "simply_supported_point"
     assert body["reactions_n"]["left"] == 6000.0
     assert body["reactions_n"]["right"] == 6000.0
+
+
+def test_dev_tool_accepts_german_payload_keys_and_case_alias() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/dev/tools/solve_beam_case",
+        json={
+            "lastfall": "einfach_gelagert_punktlast",
+            "laenge": 6.0,
+            "elastizitaetsmodul": 210e9,
+            "flaechentraegheitsmoment": 8.5e-6,
+            "punktlast": 12_000.0,
+            "lastposition": 3.0,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"] == "simply_supported_point"
+    assert body["max_bending_moment_nm"] == 18_000.0
+
+
+def test_dev_tool_accepts_nested_input_payload() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/dev/tools/solve_beam_case",
+        json={
+            "input": {
+                "case": "simply_supported_udl",
+                "length": 5.0,
+                "udl": 1000.0,
+                "e": 200e9,
+                "i": 8e-6,
+            }
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"] == "simply_supported_udl"
+
+
+def test_dev_tool_422_contains_debuggable_error_detail() -> None:
+    client = TestClient(app)
+    response = client.post("/dev/tools/solve_beam_case", json={"foo": "bar"})
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["message"] == "Invalid tool payload"
+    assert "received_keys" in detail
+    assert "normalized_keys" in detail

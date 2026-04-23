@@ -9,6 +9,7 @@ import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
 from prompt_toolkit import prompt
+from prompt_toolkit.key_binding import KeyBindings
 
 def _load_env() -> None:
     """Load env vars from local .env files for easier CLI usage."""
@@ -67,7 +68,18 @@ TOOLS: list[dict[str, Any]] = [
 
 def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     with httpx.Client(timeout=30) as client:
-        response = client.post(f"{DEFAULT_SERVER}/dev/tools/{tool_name}", json=args)
+        try:
+            response = client.post(f"{DEFAULT_SERVER}/dev/tools/{tool_name}", json=args)
+        except httpx.HTTPError as exc:
+            return {
+                "ok": False,
+                "error": {
+                    "status_code": None,
+                    "tool": tool_name,
+                    "input": args,
+                    "details": f"Cannot reach physics MCP server at {DEFAULT_SERVER}: {exc}",
+                },
+            }
         if response.is_success:
             return {"ok": True, "result": response.json()}
         try:
@@ -85,10 +97,39 @@ def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _ensure_server_is_reachable() -> None:
+    try:
+        with httpx.Client(timeout=5) as client:
+            response = client.get(f"{DEFAULT_SERVER}/health")
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            "Physics MCP server is not reachable. "
+            f"Start it first (e.g. `physics-mcp-server`) or set PHYSICS_MCP_URL correctly. "
+            f"Current URL: {DEFAULT_SERVER}. Original error: {exc}"
+        ) from exc
+    if not response.is_success:
+        raise RuntimeError(
+            "Physics MCP server health check failed with "
+            f"HTTP {response.status_code} at {DEFAULT_SERVER}/health. "
+            "Start/restart the server and try again."
+        )
+
+
 def _read_question() -> str:
+    key_bindings = KeyBindings()
+
+    @key_bindings.add("enter")
+    def _(event: Any) -> None:
+        event.current_buffer.validate_and_handle()
+
+    @key_bindings.add("escape", "enter")
+    def _(event: Any) -> None:
+        event.current_buffer.insert_text("\n")
+
     return prompt(
-        "Ask an engineering question (Alt+Enter for newline, Ctrl+D to send):\n",
+        "Ask an engineering question (Enter to send, Alt+Enter for newline):\n",
         multiline=True,
+        key_bindings=key_bindings,
     ).strip()
 
 
@@ -101,6 +142,7 @@ def main() -> None:
         )
 
     client = OpenAI(api_key=api_key)
+    _ensure_server_is_reachable()
     question = _read_question()
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]

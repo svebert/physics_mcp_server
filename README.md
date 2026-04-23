@@ -62,6 +62,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 cp .env.example .env
+# put OPENAI_API_KEY into .env for the client
 ```
 
 ## Environment variables
@@ -84,18 +85,18 @@ cp .env.example .env
 export OPENAI_API_KEY='sk-...'
 ```
 
-Optional (persist in your shell profile):
-
-```bash
-echo "export OPENAI_API_KEY='sk-...'" >> ~/.bashrc
-source ~/.bashrc
-```
-
-
 ## Run tests
 
 ```bash
 pytest
+```
+
+
+If `physics-mcp-client` is not found, reinstall in your active venv:
+
+```bash
+python3 -m pip install -e '.[dev]'
+
 ```
 
 ## Run the MCP server locally
@@ -146,14 +147,16 @@ curl -sS -X POST "http://127.0.0.1:8080/dev/tools/solve_beam_case" \
   }'
 ```
 
-
 ## OpenAI test client
 
 Run with MCP server available locally:
 
 ```bash
-export OPENAI_API_KEY=...
+# uses OPENAI_API_KEY from .env or current shell
 physics-mcp-client
+# fallback without console script:
+python3 -m client.openai_chat
+
 ```
 
 Ask something like:

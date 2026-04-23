@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 from openai import OpenAI
 
+
+def _load_env() -> None:
+    """Load env vars from local .env files for easier CLI usage."""
+    cwd_env = Path.cwd() / ".env"
+    repo_env = Path(__file__).resolve().parent.parent / ".env"
+    if cwd_env.exists():
+        load_dotenv(cwd_env, override=False)
+    elif repo_env.exists():
+        load_dotenv(repo_env, override=False)
+
+
+_load_env()
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 
@@ -62,7 +76,10 @@ def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> Any:
 def main() -> None:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY must be set")
+        raise RuntimeError(
+            "OPENAI_API_KEY is missing. Set it in your environment or in .env (see .env.example)."
+        )
+
 
     client = OpenAI(api_key=api_key)
     question = input("Ask an engineering question: ").strip()

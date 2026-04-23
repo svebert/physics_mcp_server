@@ -33,7 +33,7 @@ def _solve_simply_supported_point(inp: BeamInput) -> BeamResult:
         return -(p * a * z * (l**2 - a**2 - z**2)) / (6 * l * e * i)
 
     deflection = [y(xi) for xi in x]
-    max_m = max(abs(v) for v in moment)
+    max_m = (p * a * b) / l
     max_d = min(deflection, key=lambda v: v)
 
     return BeamResult(

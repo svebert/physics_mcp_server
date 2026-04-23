@@ -159,7 +159,9 @@ python3 -m client.openai_chat
 Input UX in the client:
 - Arrow keys navigate input history and cursor position.
 - `Alt+Enter` inserts a newline.
-- `Ctrl+D` submits multiline input.
+- `Enter` submits the message.
+
+The client now checks `PHYSICS_MCP_URL` via `/health` before sending your question and prints a clear startup error if the server is offline.
 
 If the model produces invalid tool arguments, the client now returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
 

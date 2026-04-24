@@ -23,7 +23,7 @@ Minimal, production-clean pilot project exposing simple Euler-Bernoulli beam cal
   - MCP endpoint mounted at `/mcp` (Streamable HTTP transport).
   - Health endpoint at `/health`.
   - Dev helper endpoint at `/dev/tools/{tool_name}` for quick local testing.
-- `client/`: minimal OpenAI CLI tool-calling chat client.
+- `client/`: LangChain-based CLI tool-calling chat client with provider-agnostic model support.
 - `tests/`: unit, validation, integration-like, and smoke tests.
 
 ## Repository tree
@@ -31,7 +31,7 @@ Minimal, production-clean pilot project exposing simple Euler-Bernoulli beam cal
 ```text
 physics-mcp/
 ├── client/
-│   └── openai_chat.py
+│   └── langchain_chat.py
 ├── mcp_server/
 │   ├── app.py
 │   ├── logging_config.py
@@ -60,28 +60,55 @@ physics-mcp/
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -e '.[dev]'
+# default client setup (OpenAI provider)
+pip install -e '.[dev,client-openai]'
 cp .env.example .env
-# put OPENAI_API_KEY into .env for the client
+# put LLM_API_KEY (recommended) or OPENAI_API_KEY (backward-compatible) into .env
+```
+
+For Claude/Anthropic support install:
+
+```bash
+pip install -e '.[dev,client-anthropic]'
 ```
 
 ## Environment variables
 
-- `OPENAI_API_KEY`: required for test chat client.
-- `OPENAI_MODEL`: optional (default: `gpt-4o-mini`).
+- `LLM_PROVIDER`: optional provider selector for the LangChain client (default: `openai`).
+- `LLM_MODEL`: optional model name for the client (default fallback: `OPENAI_MODEL`, then `gpt-4o-mini`).
+- `LLM_API_KEY`: recommended, provider-agnostic API key variable for the client.
+- `OPENAI_API_KEY`: backward-compatible fallback for OpenAI usage.
+- `OPENAI_MODEL`: backward-compatible fallback model variable.
 - `PHYSICS_MCP_URL`: optional for client (default: `http://127.0.0.1:8080`).
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 
-## How to get an OpenAI API key
+## API key setup (provider-agnostic)
 
-1. Create or log into your OpenAI account at https://platform.openai.com/.
-2. Open **API keys** in the dashboard: https://platform.openai.com/api-keys.
-3. Create a new secret key and copy it once (it is shown only at creation).
-4. Add it to your local environment:
+Recommended naming scheme:
+
+```bash
+export LLM_PROVIDER=openai
+export LLM_MODEL=gpt-4o-mini
+export LLM_API_KEY='...'
+```
+
+Backward compatibility for existing OpenAI setups remains:
 
 ```bash
 export OPENAI_API_KEY='sk-...'
+export OPENAI_MODEL=gpt-4o-mini
+```
+
+For Claude/Anthropic, for example:
+
+```bash
+export LLM_PROVIDER=anthropic
+export LLM_MODEL=claude-3-5-sonnet-latest
+# choose one of the following:
+export LLM_API_KEY='...'
+# or
+export ANTHROPIC_API_KEY='...'
 ```
 
 ## Run tests
@@ -94,7 +121,7 @@ pytest
 If `physics-mcp-client` is not found, reinstall in your active venv:
 
 ```bash
-python3 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev,client-openai]'
 ```
 
 ## Run the MCP server locally
@@ -145,15 +172,15 @@ curl -sS -X POST "http://127.0.0.1:8080/dev/tools/solve_beam_case" \
   }'
 ```
 
-## OpenAI test client
+## LangChain test client
 
 Run with MCP server available locally:
 
 ```bash
-# uses OPENAI_API_KEY from .env or current shell
+# uses LLM_* vars (recommended) or OPENAI_* fallback vars
 physics-mcp-client
 # fallback without console script:
-python3 -m client.openai_chat
+python3 -m client.langchain_chat
 ```
 
 Input UX in the client:
@@ -164,11 +191,9 @@ Input UX in the client:
 - `/tools` also switches Tool-Sets, `/exit` beendet den Client.
 
 
-The client uses the **Responses API** and supports these Tool-Sets:
+The client uses **LangChain chat models** and supports these Tool-Sets:
 - `0`: kein Tool
 - `1`: nur `physics-mcp`
-- `2`: nur Websearch (`web_search_preview`)
-- `3`: Websearch + `physics-mcp`
 
 If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/health` and prints a clear startup error if the server is offline.
 
@@ -181,7 +206,6 @@ Beispiel-Prompts (Deutsch):
 - "Für einen 6-m-Einfeldträger (E=210e9 Pa, I=8.5e-6 m^4) mit 12 kN Mittellast: Lagerreaktionen, maximales Biegemoment und maximale Durchbiegung."
 - "Welche Annahmen macht das Beam-Modell und wo liegen die Grenzen für reale Stahlträger?"
 - "Vergleiche einfach gelagerten Träger mit Einzellast vs. UDL bei gleicher Gesamtlast und gib die Deflektionsmaxima an."
-- "Suche kurz im Web typische E-Module für Baustahl und rechne dann ein Beispiel für 5 m Spannweite."
 - "Erzeuge mir eine JSON-Anfrage für `/dev/tools/solve_beam_case` für einen Kragträger mit UDL und 81 Samples."
 
 ## Deploy on Alpine Linux mini PC

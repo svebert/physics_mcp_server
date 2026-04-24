@@ -1,0 +1,303 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+import httpx
+from dotenv import load_dotenv
+from prompt_toolkit import prompt
+from prompt_toolkit.key_binding import KeyBindings
+
+
+def _load_env() -> None:
+    """Load env vars from local .env files for easier CLI usage."""
+    cwd_env = Path.cwd() / ".env"
+    repo_env = Path(__file__).resolve().parent.parent / ".env"
+    if cwd_env.exists():
+        load_dotenv(cwd_env, override=False)
+    elif repo_env.exists():
+        load_dotenv(repo_env, override=False)
+
+
+_load_env()
+DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
+
+
+TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
+    "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False},
+    "1": {"label": "Nur physics-mcp", "tools": ["physics-mcp"], "needs_mcp": True},
+}
+
+
+def _resolve_api_key(provider: str) -> str | None:
+    """Resolve a provider API key with backward-compatible env var names."""
+    generic_key = os.getenv("LLM_API_KEY")
+    if generic_key:
+        return generic_key
+
+    provider_key_var = f"{provider.upper()}_API_KEY"
+    provider_key = os.getenv(provider_key_var)
+    if provider_key:
+        return provider_key
+
+    if provider == "openai":
+        return os.getenv("OPENAI_API_KEY")
+
+    return None
+
+
+def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+    with httpx.Client(timeout=30) as client:
+        try:
+            response = client.post(f"{DEFAULT_SERVER}/dev/tools/{tool_name}", json=args)
+        except httpx.HTTPError as exc:
+            return {
+                "ok": False,
+                "error": {
+                    "status_code": None,
+                    "tool": tool_name,
+                    "input": args,
+                    "details": f"Cannot reach physics MCP server at {DEFAULT_SERVER}: {exc}",
+                },
+            }
+        if response.is_success:
+            return {"ok": True, "result": response.json()}
+        try:
+            details: Any = response.json()
+        except ValueError:
+            details = response.text
+        return {
+            "ok": False,
+            "error": {
+                "status_code": response.status_code,
+                "tool": tool_name,
+                "input": args,
+                "details": details,
+            },
+        }
+
+
+def _ensure_server_is_reachable() -> None:
+    try:
+        with httpx.Client(timeout=5) as client:
+            response = client.get(f"{DEFAULT_SERVER}/health")
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            "Physics MCP server is not reachable. "
+            f"Start it first (e.g. `physics-mcp-server`) or set PHYSICS_MCP_URL correctly. "
+            f"Current URL: {DEFAULT_SERVER}. Original error: {exc}"
+        ) from exc
+    if not response.is_success:
+        raise RuntimeError(
+            "Physics MCP server health check failed with "
+            f"HTTP {response.status_code} at {DEFAULT_SERVER}/health. "
+            "Start/restart the server and try again."
+        )
+
+
+def _build_chat_model() -> Any:
+    provider = DEFAULT_PROVIDER
+    api_key = _resolve_api_key(provider)
+
+    if not api_key:
+        raise RuntimeError(
+            "No API key found. Set LLM_API_KEY (provider-agnostic) or "
+            f"{provider.upper()}_API_KEY. For OpenAI, OPENAI_API_KEY remains supported."
+        )
+
+    try:
+        from langchain.chat_models import init_chat_model
+    except ImportError as exc:
+        raise RuntimeError(
+            "LangChain is required for the client. Install project dependencies, e.g. "
+            "`pip install -e '.[dev,client-openai]'`."
+        ) from exc
+
+    try:
+        return init_chat_model(
+            model=DEFAULT_MODEL,
+            model_provider=provider,
+            api_key=api_key,
+            temperature=0,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not initialize chat model. "
+            f"provider={provider!r}, model={DEFAULT_MODEL!r}. "
+            "Ensure matching provider package is installed (e.g. langchain-openai or "
+            "langchain-anthropic) and env vars are set correctly."
+        ) from exc
+
+
+def _build_mcp_tools() -> list[Any]:
+    from langchain_core.tools import tool
+
+    @tool
+    def solve_beam_case(
+        case: str,
+        length_m: float,
+        youngs_modulus_pa: float,
+        second_moment_m4: float,
+        point_load_n: float | None = None,
+        point_load_position_m: float | None = None,
+        udl_n_per_m: float | None = None,
+        samples: int | None = None,
+    ) -> dict[str, Any]:
+        """Solve one supported beam case and return reactions, maxima, and curves."""
+        payload = {
+            "case": case,
+            "length_m": length_m,
+            "youngs_modulus_pa": youngs_modulus_pa,
+            "second_moment_m4": second_moment_m4,
+        }
+        optional_fields = {
+            "point_load_n": point_load_n,
+            "point_load_position_m": point_load_position_m,
+            "udl_n_per_m": udl_n_per_m,
+            "samples": samples,
+        }
+        payload.update({key: value for key, value in optional_fields.items() if value is not None})
+        return invoke_server_tool("solve_beam_case", payload)
+
+    @tool
+    def get_supported_cases() -> dict[str, Any]:
+        """Get all case names supported by physics_core v0.1."""
+        return invoke_server_tool("get_supported_cases", {})
+
+    @tool
+    def get_model_assumptions() -> dict[str, Any]:
+        """Get assumptions and limits of the beam model."""
+        return invoke_server_tool("get_model_assumptions", {})
+
+    return [solve_beam_case, get_supported_cases, get_model_assumptions]
+
+
+def _read_question() -> str:
+    key_bindings = KeyBindings()
+
+    @key_bindings.add("enter")
+    def _(event: Any) -> None:
+        event.current_buffer.validate_and_handle()
+
+    @key_bindings.add("escape", "enter")
+    def _(event: Any) -> None:
+        event.current_buffer.insert_text("\n")
+
+    @key_bindings.add("c-t")
+    def _(event: Any) -> None:
+        event.current_buffer.text = "/tools"
+        event.current_buffer.validate_and_handle()
+
+    return prompt(
+        "Frage eingeben (Enter senden, Alt+Enter Zeilenumbruch, Ctrl+T Tool-Set):\n",
+        multiline=True,
+        key_bindings=key_bindings,
+    ).strip()
+
+
+def _select_toolset_interactive() -> str:
+    print("\nTool-Set auswählen:")
+    for key, option in TOOLSET_OPTIONS.items():
+        print(f"  {key}: {option['label']}")
+
+    selection = prompt("Auswahl [0-1, Default 1]: ").strip() or "1"
+    if selection not in TOOLSET_OPTIONS:
+        print(f"Ungültige Auswahl '{selection}', nehme Default 1 (Nur physics-mcp).")
+        return "1"
+    return selection
+
+
+def _extract_text(response: Any) -> str:
+    content = response.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                chunks.append(str(item.get("text", "")))
+            elif hasattr(item, "text"):
+                chunks.append(str(item.text))
+        return "\n".join(chunk for chunk in chunks if chunk).strip()
+    return str(content)
+
+
+def main() -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    model = _build_chat_model()
+    mcp_tools = _build_mcp_tools()
+    tool_lookup = {tool.name: tool for tool in mcp_tools}
+
+    toolset_key = _select_toolset_interactive()
+    toolset = TOOLSET_OPTIONS[toolset_key]
+    if toolset["needs_mcp"]:
+        _ensure_server_is_reachable()
+
+    history: list[Any] = []
+
+    print(
+        f"\nAktiver Provider: {DEFAULT_PROVIDER}, Modell: {DEFAULT_MODEL}, "
+        f"Tool-Set: {toolset['label']}. "
+        "Befehle: /exit beendet, /tools wechselt Tool-Set."
+    )
+    while True:
+        question = _read_question()
+        if not question:
+            continue
+        if question.lower() in {"/exit", "exit", "quit"}:
+            break
+        if question.lower() == "/tools":
+            toolset_key = _select_toolset_interactive()
+            toolset = TOOLSET_OPTIONS[toolset_key]
+            if toolset["needs_mcp"]:
+                _ensure_server_is_reachable()
+            print(f"\nAktives Tool-Set: {toolset['label']}")
+            continue
+
+        history.append(HumanMessage(content=question))
+
+        if toolset["tools"]:
+            current_model = model.bind_tools(mcp_tools)
+        else:
+            current_model = model
+
+        response = current_model.invoke(history)
+
+        while getattr(response, "tool_calls", None):
+            history.append(response)
+            for call in response.tool_calls:
+                tool_name = call["name"]
+                tool_args = call.get("args", {})
+                tool_impl = tool_lookup.get(tool_name)
+                if tool_impl is None:
+                    tool_result: dict[str, Any] = {
+                        "ok": False,
+                        "error": {
+                            "status_code": None,
+                            "tool": tool_name,
+                            "input": tool_args,
+                            "details": f"Unknown tool '{tool_name}'",
+                        },
+                    }
+                else:
+                    tool_result = tool_impl.invoke(tool_args)
+                history.append(
+                    ToolMessage(
+                        content=json.dumps(tool_result, ensure_ascii=False),
+                        tool_call_id=call["id"],
+                    )
+                )
+            response = current_model.invoke(history)
+
+        history.append(response)
+        print("\nAntwort:\n")
+        print(_extract_text(response))
+
+
+if __name__ == "__main__":
+    main()

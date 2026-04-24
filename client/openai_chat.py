@@ -7,9 +7,9 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from openai import OpenAI
 from prompt_toolkit import prompt
 from prompt_toolkit.key_binding import KeyBindings
+
 
 def _load_env() -> None:
     """Load env vars from local .env files for easier CLI usage."""
@@ -22,57 +22,32 @@ def _load_env() -> None:
 
 
 _load_env()
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 
-MCP_TOOLS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "name": "solve_beam_case",
-        "description": "Solve one supported beam case and return reactions, maxima, and curves.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "case": {"type": "string"},
-                "length_m": {"type": "number"},
-                "youngs_modulus_pa": {"type": "number"},
-                "second_moment_m4": {"type": "number"},
-                "point_load_n": {"type": "number"},
-                "point_load_position_m": {"type": "number"},
-                "udl_n_per_m": {"type": "number"},
-                "samples": {"type": "integer"},
-            },
-            "required": ["case", "length_m", "youngs_modulus_pa", "second_moment_m4"],
-        },
-    },
-    {
-        "type": "function",
-        "name": "get_supported_cases",
-        "description": "Get all case names supported by physics_core v0.1.",
-        "parameters": {"type": "object", "properties": {}},
-    },
-    {
-        "type": "function",
-        "name": "get_model_assumptions",
-        "description": "Get assumptions and limits of the beam model.",
-        "parameters": {"type": "object", "properties": {}},
-    },
-]
-
-WEB_SEARCH_TOOLS: list[dict[str, Any]] = [{"type": "web_search_preview"}]
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
     "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False},
-    "1": {"label": "Nur physics-mcp", "tools": MCP_TOOLS, "needs_mcp": True},
-    "2": {"label": "Nur Websearch", "tools": WEB_SEARCH_TOOLS, "needs_mcp": False},
-    "3": {
-        "label": "Websearch + physics-mcp",
-        "tools": [*WEB_SEARCH_TOOLS, *MCP_TOOLS],
-        "needs_mcp": True,
-    },
+    "1": {"label": "Nur physics-mcp", "tools": ["physics-mcp"], "needs_mcp": True},
 }
 
-MCP_TOOL_NAMES = {tool["name"] for tool in MCP_TOOLS if tool["type"] == "function"}
+
+def _resolve_api_key(provider: str) -> str | None:
+    """Resolve a provider API key with backward-compatible env var names."""
+    generic_key = os.getenv("LLM_API_KEY")
+    if generic_key:
+        return generic_key
+
+    provider_key_var = f"{provider.upper()}_API_KEY"
+    provider_key = os.getenv(provider_key_var)
+    if provider_key:
+        return provider_key
+
+    if provider == "openai":
+        return os.getenv("OPENAI_API_KEY")
+
+    return None
 
 
 def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -124,6 +99,83 @@ def _ensure_server_is_reachable() -> None:
         )
 
 
+def _build_chat_model() -> Any:
+    provider = DEFAULT_PROVIDER
+    api_key = _resolve_api_key(provider)
+
+    if not api_key:
+        raise RuntimeError(
+            "No API key found. Set LLM_API_KEY (provider-agnostic) or "
+            f"{provider.upper()}_API_KEY. For OpenAI, OPENAI_API_KEY remains supported."
+        )
+
+    try:
+        from langchain.chat_models import init_chat_model
+    except ImportError as exc:
+        raise RuntimeError(
+            "LangChain is required for the client. Install project dependencies, e.g. "
+            "`pip install -e '.[dev,client-openai]'`."
+        ) from exc
+
+    try:
+        return init_chat_model(
+            model=DEFAULT_MODEL,
+            model_provider=provider,
+            api_key=api_key,
+            temperature=0,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not initialize chat model. "
+            f"provider={provider!r}, model={DEFAULT_MODEL!r}. "
+            "Ensure matching provider package is installed (e.g. langchain-openai or "
+            "langchain-anthropic) and env vars are set correctly."
+        ) from exc
+
+
+def _build_mcp_tools() -> list[Any]:
+    from langchain_core.tools import tool
+
+    @tool
+    def solve_beam_case(
+        case: str,
+        length_m: float,
+        youngs_modulus_pa: float,
+        second_moment_m4: float,
+        point_load_n: float | None = None,
+        point_load_position_m: float | None = None,
+        udl_n_per_m: float | None = None,
+        samples: int | None = None,
+    ) -> dict[str, Any]:
+        """Solve one supported beam case and return reactions, maxima, and curves."""
+        payload = {
+            "case": case,
+            "length_m": length_m,
+            "youngs_modulus_pa": youngs_modulus_pa,
+            "second_moment_m4": second_moment_m4,
+        }
+        optional_fields = {
+            "point_load_n": point_load_n,
+            "point_load_position_m": point_load_position_m,
+            "udl_n_per_m": udl_n_per_m,
+            "samples": samples,
+        }
+        payload.update({key: value for key, value in optional_fields.items() if value is not None})
+        return invoke_server_tool("solve_beam_case", payload)
+
+    @tool
+    def get_supported_cases() -> dict[str, Any]:
+        """Get all case names supported by physics_core v0.1."""
+        return invoke_server_tool("get_supported_cases", {})
+
+    @tool
+    def get_model_assumptions() -> dict[str, Any]:
+        """Get assumptions and limits of the beam model."""
+        return invoke_server_tool("get_model_assumptions", {})
+
+    return [solve_beam_case, get_supported_cases, get_model_assumptions]
+
+
 def _read_question() -> str:
     key_bindings = KeyBindings()
 
@@ -142,7 +194,6 @@ def _read_question() -> str:
 
     return prompt(
         "Frage eingeben (Enter senden, Alt+Enter Zeilenumbruch, Ctrl+T Tool-Set):\n",
-
         multiline=True,
         key_bindings=key_bindings,
     ).strip()
@@ -153,69 +204,45 @@ def _select_toolset_interactive() -> str:
     for key, option in TOOLSET_OPTIONS.items():
         print(f"  {key}: {option['label']}")
 
-    selection = prompt("Auswahl [0-3, Default 1]: ").strip() or "1"
+    selection = prompt("Auswahl [0-1, Default 1]: ").strip() or "1"
     if selection not in TOOLSET_OPTIONS:
         print(f"Ungültige Auswahl '{selection}', nehme Default 1 (Nur physics-mcp).")
         return "1"
     return selection
 
 
-def _invoke_tools_for_response(client: OpenAI, response: Any, tools: list[dict[str, Any]]) -> Any:
-    current_response = response
-    while True:
-        function_calls = [item for item in current_response.output if item.type == "function_call"]
-        if not function_calls:
-            return current_response
-
-        tool_outputs: list[dict[str, Any]] = []
-        for call in function_calls:
-            name = call.name
-            args = json.loads(call.arguments or "{}")
-            if name in MCP_TOOL_NAMES:
-                outcome = invoke_server_tool(name, args)
-            else:
-                outcome = {
-                    "ok": False,
-                    "error": {
-                        "status_code": None,
-                        "tool": name,
-                        "input": args,
-                        "details": f"Unknown tool '{name}'",
-                    },
-                }
-
-            tool_outputs.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": call.call_id,
-                    "output": json.dumps(outcome),
-                }
-            )
-
-        current_response = client.responses.create(
-            model=DEFAULT_MODEL,
-            input=tool_outputs,
-            tools=tools,
-            previous_response_id=current_response.id,
-        )
+def _extract_text(response: Any) -> str:
+    content = response.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                chunks.append(str(item.get("text", "")))
+            elif hasattr(item, "text"):
+                chunks.append(str(item.text))
+        return "\n".join(chunk for chunk in chunks if chunk).strip()
+    return str(content)
 
 
 def main() -> None:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "OPENAI_API_KEY is missing. Set it in your environment or in .env (see .env.example)."
-        )
+    from langchain_core.messages import HumanMessage, ToolMessage
 
-    client = OpenAI(api_key=api_key)
+    model = _build_chat_model()
+    mcp_tools = _build_mcp_tools()
+    tool_lookup = {tool.name: tool for tool in mcp_tools}
+
     toolset_key = _select_toolset_interactive()
     toolset = TOOLSET_OPTIONS[toolset_key]
     if toolset["needs_mcp"]:
         _ensure_server_is_reachable()
-    previous_response_id: str | None = None
+
+    history: list[Any] = []
 
     print(
-        f"\nAktives Tool-Set: {toolset['label']}. "
+        f"\nAktiver Provider: {DEFAULT_PROVIDER}, Modell: {DEFAULT_MODEL}, "
+        f"Tool-Set: {toolset['label']}. "
         "Befehle: /exit beendet, /tools wechselt Tool-Set."
     )
     while True:
@@ -232,16 +259,44 @@ def main() -> None:
             print(f"\nAktives Tool-Set: {toolset['label']}")
             continue
 
-        response = client.responses.create(
-            model=DEFAULT_MODEL,
-            input=question,
-            tools=toolset["tools"],
-            previous_response_id=previous_response_id,
-        )
-        response = _invoke_tools_for_response(client, response, toolset["tools"])
-        previous_response_id = response.id
+        history.append(HumanMessage(content=question))
+
+        if toolset["tools"]:
+            current_model = model.bind_tools(mcp_tools)
+        else:
+            current_model = model
+
+        response = current_model.invoke(history)
+
+        while getattr(response, "tool_calls", None):
+            history.append(response)
+            for call in response.tool_calls:
+                tool_name = call["name"]
+                tool_args = call.get("args", {})
+                tool_impl = tool_lookup.get(tool_name)
+                if tool_impl is None:
+                    tool_result: dict[str, Any] = {
+                        "ok": False,
+                        "error": {
+                            "status_code": None,
+                            "tool": tool_name,
+                            "input": tool_args,
+                            "details": f"Unknown tool '{tool_name}'",
+                        },
+                    }
+                else:
+                    tool_result = tool_impl.invoke(tool_args)
+                history.append(
+                    ToolMessage(
+                        content=json.dumps(tool_result, ensure_ascii=False),
+                        tool_call_id=call["id"],
+                    )
+                )
+            response = current_model.invoke(history)
+
+        history.append(response)
         print("\nAntwort:\n")
-        print(response.output_text)
+        print(_extract_text(response))
 
 
 if __name__ == "__main__":

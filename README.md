@@ -31,7 +31,7 @@ Minimal, production-clean pilot project exposing simple Euler-Bernoulli beam cal
 ```text
 physics-mcp/
 ├── client/
-│   └── openai_chat.py
+│   └── langchain_chat.py
 ├── mcp_server/
 │   ├── app.py
 │   ├── logging_config.py
@@ -180,7 +180,7 @@ Run with MCP server available locally:
 # uses LLM_* vars (recommended) or OPENAI_* fallback vars
 physics-mcp-client
 # fallback without console script:
-python3 -m client.openai_chat
+python3 -m client.langchain_chat
 ```
 
 Input UX in the client:

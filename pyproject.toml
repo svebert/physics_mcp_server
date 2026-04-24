@@ -36,7 +36,7 @@ dev = [
 
 [project.scripts]
 physics-mcp-server = "mcp_server.app:run"
-physics-mcp-client = "client.openai_chat:main"
+physics-mcp-client = "client.langchain_chat:main"
 
 [tool.setuptools]
 packages = ["physics_core", "mcp_server", "client"]

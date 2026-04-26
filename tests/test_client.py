@@ -49,3 +49,34 @@ def test_resolve_api_key_keeps_openai_backward_compatibility(
     monkeypatch.setenv("OPENAI_API_KEY", "legacy-openai-key")
 
     assert langchain_chat._resolve_api_key("openai") == "legacy-openai-key"
+
+
+def test_toolset_options_include_websearch_combinations() -> None:
+    assert langchain_chat.TOOLSET_OPTIONS["2"]["tools"] == ["websearch"]
+    assert langchain_chat.TOOLSET_OPTIONS["3"]["tools"] == ["websearch", "physics-mcp"]
+
+
+def test_web_search_returns_structured_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "AbstractText": "A concise summary",
+                "AbstractURL": "https://example.com/summary",
+                "Heading": "Example",
+                "RelatedTopics": [
+                    {"Text": "Result one", "FirstURL": "https://example.com/1"},
+                    {"Topics": [{"Text": "Nested", "FirstURL": "https://example.com/2"}]},
+                ],
+            }
+
+    def _fake_get(*args: object, **kwargs: object) -> _Resp:
+        return _Resp()
+
+    monkeypatch.setattr(httpx.Client, "get", _fake_get)
+    result = langchain_chat._web_search("beam theory", max_results=2)
+
+    assert result["ok"] is True
+    assert len(result["results"]) == 2

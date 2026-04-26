@@ -4,6 +4,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -12,7 +13,10 @@ from fastapi import FastAPI, HTTPException
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from mcp_server.env_loader import load_project_env
 from mcp_server.logging_config import configure_logging
+
+load_project_env(Path(__file__).resolve().parent)
 
 logger = logging.getLogger("physics-postdoc-mcp")
 smart_mcp = FastMCP("physics-postdoc-mcp")

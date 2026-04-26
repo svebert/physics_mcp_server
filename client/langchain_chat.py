@@ -364,7 +364,18 @@ def main() -> None:
                         },
                     }
                 else:
-                    tool_result = tool_impl.invoke(tool_args)
+                    try:
+                        tool_result = tool_impl.invoke(tool_args)
+                    except Exception as exc:  # pragma: no cover - defensive wrapper for interactive loop
+                        tool_result = {
+                            "ok": False,
+                            "error": {
+                                "status_code": None,
+                                "tool": tool_name,
+                                "input": tool_args,
+                                "details": f"Tool execution failed: {exc}",
+                            },
+                        }
                 history.append(
                     ToolMessage(
                         content=json.dumps(tool_result, ensure_ascii=False),

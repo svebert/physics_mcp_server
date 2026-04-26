@@ -139,13 +139,16 @@ def _build_tools(enable_web_search: bool) -> list[Any]:
 
         @tool
         def web_search(query: str) -> dict[str, Any]:
-            with httpx.Client(timeout=15) as client:
-                response = client.get(
-                    "https://api.duckduckgo.com/",
-                    params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-                )
-                response.raise_for_status()
-                body = response.json()
+            try:
+                with httpx.Client(timeout=15) as client:
+                    response = client.get(
+                        "https://api.duckduckgo.com/",
+                        params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+                    )
+                    response.raise_for_status()
+                    body = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                return {"ok": False, "error": {"tool": "web_search", "input": {"query": query}, "details": f"Web search failed: {exc}"}}
             snippets: list[str] = []
             if body.get("AbstractText"):
                 snippets.append(str(body["AbstractText"]))
@@ -198,7 +201,18 @@ def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
                     "error": {"status_code": None, "tool": tool_name, "input": tool_args},
                 }
             else:
-                tool_result = tool_impl.invoke(tool_args)
+                try:
+                    tool_result = tool_impl.invoke(tool_args)
+                except Exception as exc:
+                    tool_result = {
+                        "ok": False,
+                        "error": {
+                            "status_code": None,
+                            "tool": tool_name,
+                            "input": tool_args,
+                            "details": f"Tool execution failed: {exc}",
+                        },
+                    }
             history.append(ToolMessage(content=json.dumps(tool_result, ensure_ascii=False), tool_call_id=call["id"]))
 
         request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]

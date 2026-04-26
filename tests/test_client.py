@@ -48,3 +48,8 @@ def test_toolset_options_match_expected_modes() -> None:
     }
     assert langchain_chat.TOOLSET_OPTIONS["2"]["tools"] == ["websearch"]
     assert "websearch" in langchain_chat.TOOLSET_OPTIONS["5"]["tools"]
+    assert langchain_chat.TOOLSET_OPTIONS["1"]["tools"] == [
+        "solve_beam_case_tool",
+        "get_supported_cases_tool",
+        "get_model_assumptions_tool",
+    ]

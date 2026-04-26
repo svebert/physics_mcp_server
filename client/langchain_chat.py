@@ -38,9 +38,9 @@ Arbeite strikt so:
 
 PHYSICS_MCP_TOOL_INSTRUCTION = """
 Nutzung der mcp-physics Tools:
-- Verwende `get_supported_cases` bevor du unsicher über Lastfall-Namen bist.
-- Verwende `get_model_assumptions`, wenn Grenzen/Annahmen relevant sind.
-- Verwende `solve_beam_case` nur mit diesen SI-Feldern:
+- Verwende `get_supported_cases_tool` bevor du unsicher über Lastfall-Namen bist.
+- Verwende `get_model_assumptions_tool`, wenn Grenzen/Annahmen relevant sind.
+- Verwende `solve_beam_case_tool` nur mit diesen SI-Feldern:
   case, length_m, youngs_modulus_pa, second_moment_m4, optional point_load_n,
   point_load_position_m, udl_n_per_m, samples.
 - Wenn Nutzer in anderer Sprache schreibt: mappe Begriffe robust auf die Tool-Felder.
@@ -54,7 +54,11 @@ TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
     "0": {"label": "no tools", "tools": [], "needs_mcp": False, "system_prompt": None},
     "1": {
         "label": "mcp-physics",
-        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions"],
+        "tools": [
+            "solve_beam_case_tool",
+            "get_supported_cases_tool",
+            "get_model_assumptions_tool",
+        ],
         "needs_mcp": True,
         "system_prompt": None,
     },
@@ -66,19 +70,33 @@ TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
     },
     "3": {
         "label": "mcp-physics+websearch",
-        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions", "websearch"],
+        "tools": [
+            "solve_beam_case_tool",
+            "get_supported_cases_tool",
+            "get_model_assumptions_tool",
+            "websearch",
+        ],
         "needs_mcp": True,
         "system_prompt": None,
     },
     "4": {
         "label": "physics-postdoc",
-        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions"],
+        "tools": [
+            "solve_beam_case_tool",
+            "get_supported_cases_tool",
+            "get_model_assumptions_tool",
+        ],
         "needs_mcp": True,
         "system_prompt": f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}",
     },
     "5": {
         "label": "physics-postdoc+websearch",
-        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions", "websearch"],
+        "tools": [
+            "solve_beam_case_tool",
+            "get_supported_cases_tool",
+            "get_model_assumptions_tool",
+            "websearch",
+        ],
         "needs_mcp": True,
         "system_prompt": (
             f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}\n\n"

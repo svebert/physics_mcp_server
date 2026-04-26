@@ -227,8 +227,8 @@ async def _build_mcp_tools() -> tuple[Any, list[Any]]:
             raise RuntimeError(
                 "Incompatible LangChain packages detected: `langchain-mcp-adapters` "
                 "expects a newer `langchain-core` than the one installed. \
-Install matching versions (for this project: `langchain-mcp-adapters<0.2`) with \
-`pip install -e '.[dev]'` or pin `langchain-mcp-adapters<0.2`."
+Install matching versions (for this project: `langchain-mcp-adapters>=0.2,<0.3`) with \
+`pip install -e '.[dev]'` or pin `langchain-mcp-adapters>=0.2,<0.3`."
             ) from exc
 
         raise RuntimeError(

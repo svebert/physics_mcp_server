@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
@@ -29,6 +31,7 @@ PHYSICS_MCP_URL = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 MAX_TOOL_ROUNDS = int(os.getenv("SMART_MCP_MAX_TOOL_ROUNDS", "12"))
+MAX_LOG_PAYLOAD_CHARS = int(os.getenv("SMART_MCP_MAX_LOG_PAYLOAD_CHARS", "2000"))
 
 POSTDOC_CONTEXT = """
 Du bist ein Physik- und Ingenieurwesen-Postdoc und bearbeitest MINT-Anfragen in jeder Sprache.
@@ -178,6 +181,14 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
         "Ich breche hier ab, weil das Modell wiederholt dieselben Tool-Aufrufe erzeugt hat. "
         "Bitte formuliere die Frage präziser oder nutze direkt das mcp-physics Tool-Set."
     )
+    trace_id = uuid.uuid4().hex[:12]
+    started = time.perf_counter()
+    logger.debug(
+        "postdoc-trace start trace_id=%s enable_web_search=%s question=%s",
+        trace_id,
+        enable_web_search,
+        question[:MAX_LOG_PAYLOAD_CHARS],
+    )
     try:
         response = await current_model.ainvoke(request_messages)
         tool_round = 0
@@ -186,6 +197,12 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
 
         while getattr(response, "tool_calls", None):
             tool_round += 1
+            logger.debug(
+                "postdoc-trace model-tool-round trace_id=%s round=%d tool_calls=%s",
+                trace_id,
+                tool_round,
+                json.dumps(response.tool_calls, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+            )
             if tool_round > MAX_TOOL_ROUNDS:
                 logger.warning("Stopping postdoc agent after reaching max tool rounds", extra={"max_rounds": MAX_TOOL_ROUNDS})
                 return guardrail_message
@@ -211,6 +228,13 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
             for call in response.tool_calls:
                 tool_name = call["name"]
                 tool_args = call.get("args", {})
+                logger.debug(
+                    "postdoc-trace tool-request trace_id=%s round=%d tool=%s args=%s",
+                    trace_id,
+                    tool_round,
+                    tool_name,
+                    json.dumps(tool_args, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+                )
                 tool_impl = tool_lookup.get(tool_name)
                 if tool_impl is None:
                     tool_result: dict[str, Any] = {
@@ -230,6 +254,13 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
                                 "details": f"Tool execution failed: {exc}",
                             },
                         }
+                logger.debug(
+                    "postdoc-trace tool-response trace_id=%s round=%d tool=%s result=%s",
+                    trace_id,
+                    tool_round,
+                    tool_name,
+                    json.dumps(tool_result, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+                )
                 history.append(ToolMessage(content=json.dumps(tool_result, ensure_ascii=False), tool_call_id=call["id"]))
 
             request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
@@ -239,7 +270,14 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
         if callable(close_fn):
             await close_fn()
 
-    return _extract_text(response)
+    answer = _extract_text(response)
+    logger.debug(
+        "postdoc-trace finish trace_id=%s elapsed_ms=%.2f answer=%s",
+        trace_id,
+        (time.perf_counter() - started) * 1_000,
+        answer[:MAX_LOG_PAYLOAD_CHARS],
+    )
+    return answer
 
 
 @smart_mcp.tool()

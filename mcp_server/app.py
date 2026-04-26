@@ -74,10 +74,13 @@ def _normalize_solve_beam_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Accept shorthand, multilingual, and nested keys from LLM tool-calls and map to API schema."""
     normalized = dict(payload)
 
-    # Common shape from some clients: {"input": {...}} or {"arguments": {...}}
-    nested = normalized.get("input") or normalized.get("arguments")
-    if isinstance(nested, dict):
-        normalized = {**nested, **{k: v for k, v in normalized.items() if k not in {"input", "arguments"}}}
+    # Common nested shapes from clients/adapters.
+    # Supported wrappers: input, arguments, payload, kwargs
+    wrapper_keys = ("input", "arguments", "payload", "kwargs")
+    for wrapper_key in wrapper_keys:
+        nested = normalized.get(wrapper_key)
+        if isinstance(nested, dict):
+            normalized = {**nested, **{k: v for k, v in normalized.items() if k != wrapper_key}}
 
     alias_map: dict[str, str] = {
         "l": "length_m",

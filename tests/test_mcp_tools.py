@@ -98,3 +98,11 @@ def test_dev_tool_422_contains_debuggable_error_detail() -> None:
     assert detail["message"] == "Invalid tool payload"
     assert "received_keys" in detail
     assert "normalized_keys" in detail
+
+
+def test_mcp_endpoint_is_not_redirected() -> None:
+    mount_routes = [route for route in app.routes if getattr(route, "path", None) == ""]
+    assert mount_routes
+    mounted_app = mount_routes[0].app
+    mounted_paths = [route.path for route in mounted_app.routes]
+    assert "/mcp" in mounted_paths

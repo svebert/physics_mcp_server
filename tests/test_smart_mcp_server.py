@@ -26,3 +26,11 @@ def test_ask_endpoint_uses_agent(monkeypatch) -> None:
     response = client.post("/v1/ask", json={"question": "Träger mit Punktlast", "enable_web_search": False})
     assert response.status_code == 200
     assert response.json()["answer"] == "Berechnete Antwort"
+
+
+def test_mcp_endpoint_is_not_redirected() -> None:
+    mount_routes = [route for route in smart_module.app.routes if getattr(route, "path", None) == ""]
+    assert mount_routes
+    mounted_app = mount_routes[0].app
+    mounted_paths = [route.path for route in mounted_app.routes]
+    assert "/mcp" in mounted_paths

@@ -161,7 +161,7 @@ def get_model_assumptions_tool() -> list[str]:
     return ASSUMPTIONS_V1
 
 
-LOG_CONFIG = configure_logging()
+LOG_CONFIG = configure_logging(service_name="physics-mcp", app_logger_name="physics-mcp")
 
 app = FastAPI(title="physics-mcp", version="0.1.0")
 rate_limit_hook = RateLimitHook()
@@ -221,7 +221,7 @@ def dev_tool(tool_name: str, request: Request, payload: dict[str, Any] | None = 
     raise HTTPException(status_code=404, detail=f"Unknown tool {tool_name}")
 
 
-app.mount("/mcp", mcp.streamable_http_app())
+app.mount("/", mcp.streamable_http_app())
 
 
 def run() -> None:

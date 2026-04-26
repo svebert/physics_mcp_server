@@ -103,6 +103,10 @@ pip install -e '.[dev,anthropic]'
 - `SMART_MCP_URL`: URL von `smart-mcp-server` / `physik-postdoc` (default: `http://127.0.0.1:8090`).
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
+- `PHYSICS_MCP_LOG_DIR`: Verzeichnis für Log-Dateien (default: `logs`).
+  - `logs/physics-mcp.log`
+  - `logs/physics-postdoc-mcp.log`
+  - `logs/physics-mcp-client.log`
 
 ## API key setup (provider-agnostic)
 

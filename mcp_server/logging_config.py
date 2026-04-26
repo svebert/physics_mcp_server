@@ -3,12 +3,11 @@ from __future__ import annotations
 import logging
 import logging.config
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-def _build_uvicorn_log_config(log_file: Path, level: int) -> dict[str, Any]:
+def _build_uvicorn_log_config(log_file: Path, level: int, app_logger_name: str) -> dict[str, Any]:
     log_level_name = logging.getLevelName(level)
     return {
         "version": 1,
@@ -53,18 +52,22 @@ def _build_uvicorn_log_config(log_file: Path, level: int) -> dict[str, Any]:
             "uvicorn": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
             "uvicorn.error": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
             "uvicorn.access": {"handlers": ["access", "file_access"], "level": log_level_name, "propagate": False},
-            "physics-mcp": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
+            app_logger_name: {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
         },
     }
 
 
-def configure_logging(level: int = logging.INFO) -> dict[str, Any]:
+def configure_logging(
+    *,
+    service_name: str = "physics-mcp",
+    app_logger_name: str = "physics-mcp",
+    level: int = logging.INFO,
+) -> dict[str, Any]:
     log_dir = Path(os.getenv("PHYSICS_MCP_LOG_DIR", "logs"))
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    date_suffix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    log_file = log_dir / f"physics-mcp-{date_suffix}.log"
+    log_file = log_dir / f"{service_name}.log"
 
-    logging_config = _build_uvicorn_log_config(log_file=log_file, level=level)
+    logging_config = _build_uvicorn_log_config(log_file=log_file, level=level, app_logger_name=app_logger_name)
     logging.config.dictConfig(logging_config)
     return logging_config

@@ -16,7 +16,7 @@ from mcp_server.logging_config import configure_logging
 logger = logging.getLogger("physics-postdoc-mcp")
 smart_mcp = FastMCP("physics-postdoc-mcp")
 
-LOG_CONFIG = configure_logging()
+LOG_CONFIG = configure_logging(service_name="physics-postdoc-mcp", app_logger_name="physics-postdoc-mcp")
 PHYSICS_MCP_URL = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -221,7 +221,7 @@ async def ask(request: AskRequest) -> AskResponse:
     return AskResponse(answer=answer)
 
 
-app.mount("/mcp", smart_mcp.streamable_http_app())
+app.mount("/", smart_mcp.streamable_http_app())
 
 
 def run() -> None:

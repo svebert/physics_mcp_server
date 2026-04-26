@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,18 @@ def _load_env() -> None:
 
 
 _load_env()
+LOG_DIR = Path(os.getenv("PHYSICS_MCP_LOG_DIR", "logs"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+CLIENT_LOG_FILE = LOG_DIR / "physics-mcp-client.log"
+
+logger = logging.getLogger("physics-mcp-client")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    file_handler = logging.FileHandler(CLIENT_LOG_FILE, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(file_handler)
+    logger.propagate = False
+
 DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_PHYSICS_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
@@ -97,6 +110,7 @@ def _ensure_server_is_reachable(server_url: str, server_name: str) -> None:
             f"HTTP {response.status_code} at {server_url}/health. "
             "Start/restart the server and try again."
         )
+    logger.info("Server reachable: %s (%s)", server_name, server_url)
 
 
 def _build_chat_model() -> Any:
@@ -333,6 +347,7 @@ def main() -> None:
     mcp_tools: list[Any] = []
     loaded_mcp_servers: set[str] = set()
 
+    logger.info("Starting client | provider=%s model=%s", DEFAULT_PROVIDER, DEFAULT_MODEL)
     toolset_key = _select_toolset_interactive()
     toolset = TOOLSET_OPTIONS[toolset_key]
     required_servers = set(toolset["mcp_servers"])
@@ -346,6 +361,7 @@ def main() -> None:
             loaded_mcp_servers = required_servers
         except RuntimeError as exc:
             print(f"\nFehler beim Laden des Tool-Sets '{toolset['label']}': {exc}")
+            logger.exception("Failed to load initial toolset '%s'", toolset["label"])
             toolset = TOOLSET_OPTIONS["0"]
             mcp_tools = []
             loaded_mcp_servers = set()
@@ -385,6 +401,7 @@ def main() -> None:
                     loaded_mcp_servers = required_servers
                 except RuntimeError as exc:
                     print(f"\nFehler beim Laden des Tool-Sets '{toolset['label']}': {exc}")
+                    logger.exception("Failed to switch toolset to '%s'", toolset["label"])
                     toolset = TOOLSET_OPTIONS["0"]
                     mcp_tools = []
                     loaded_mcp_servers = set()
@@ -394,6 +411,7 @@ def main() -> None:
             continue
 
         history.append(HumanMessage(content=question))
+        logger.info("User question received (len=%d) using toolset='%s'", len(question), toolset["label"])
 
         tool_pool = [*mcp_tools, web_tool]
         tool_lookup = {tool.name: tool for tool in tool_pool}
@@ -423,8 +441,10 @@ def main() -> None:
                     }
                 else:
                     try:
+                        logger.info("Invoking tool '%s' with args=%s", tool_name, tool_args)
                         tool_result = tool_impl.invoke(tool_args)
                     except Exception as exc:  # pragma: no cover - defensive wrapper for interactive loop
+                        logger.exception("Tool execution failed for '%s'", tool_name)
                         tool_result = {
                             "ok": False,
                             "error": {
@@ -453,6 +473,7 @@ def main() -> None:
         close_fn = getattr(mcp_client, "aclose", None)
         if callable(close_fn):
             asyncio.run(close_fn())
+    logger.info("Client shutdown")
 
 
 if __name__ == "__main__":

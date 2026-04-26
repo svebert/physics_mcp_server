@@ -19,15 +19,16 @@ Minimal, production-clean pilot project exposing simple Euler-Bernoulli beam cal
 ## Architecture overview
 
 - `physics_core/`: deterministic, pure physics logic (no MCP dependency).
-- `mcp_server/`: MCP tool wrapper + FastAPI app.
+- `mcp_server/` (`mcp-physics`): MCP tool wrapper + FastAPI app.
   - MCP endpoint mounted at `/mcp` (Streamable HTTP transport).
   - Health endpoint at `/health`.
   - Dev helper endpoint at `/dev/tools/{tool_name}` for quick local testing.
-- `smart_mcp_server/`: smarter, parallel MCP server with natural-language endpoint.
+- `smart_mcp_server/` (`physik-postdoc` / `smart-mcp-server`): eigener Agent (LangChain chat client) mit natürlicher Sprache.
+  - Nutzt die von `mcp-physics` bereitgestellten MCP-Functions als Tools (über MCP-Client-Adapter).
   - MCP endpoint mounted at `/mcp`.
   - Health endpoint at `/health`.
   - NL endpoint at `/v1/ask`.
-- `client/`: LangChain-based CLI tool-calling chat client with provider-agnostic model support.
+- `client/`: LangChain-based Test-Chat-Client mit umschaltbaren Tool-Sets.
 - `tests/`: unit, validation, integration-like, and smoke tests.
 
 ## Repository tree
@@ -98,7 +99,8 @@ pip install -e '.[dev,anthropic]'
 - `LLM_API_KEY`: recommended, provider-agnostic API key variable for the client.
 - `OPENAI_API_KEY`: backward-compatible fallback for OpenAI usage.
 - `OPENAI_MODEL`: backward-compatible fallback model variable.
-- `PHYSICS_MCP_URL`: optional for client (default: `http://127.0.0.1:8080`).
+- `PHYSICS_MCP_URL`: URL von `mcp-physics` (default: `http://127.0.0.1:8080`).
+- `SMART_MCP_URL`: URL von `smart-mcp-server` / `physik-postdoc` (default: `http://127.0.0.1:8090`).
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 
@@ -205,14 +207,17 @@ Input UX in the client:
 
 
 The client uses **LangChain chat models** and supports these Tool-Sets:
-- `0`: `no tools`
+- `0`: `none`
 - `1`: `mcp-physics`
 - `2`: `websearch`
-- `3`: `mcp-physics+websearch`
-- `4`: `physics-postdoc` (Postdoc-Context + mcp-physics)
-- `5`: `physics-postdoc+websearch` (Postdoc-Context + mcp-physics + Websuche)
+- `3`: `mcp-physics + websearch`
+- `4`: `physik-postdoc`
+- `5`: `physik-postdoc + websearch`
+
+Wichtig: Für vollständige Funktionalität des Test-Clients mit den Modi `mcp-physics`, `physik-postdoc` und deren Websearch-Kombinationen müssen `mcp-physics` **und** `smart-mcp-server` parallel laufen.
 
 `mcp-physics` modes now use a real MCP client adapter against `PHYSICS_MCP_URL/mcp` (streamable HTTP) instead of the `/dev/tools/...` helper route.
+`physik-postdoc` modes nutzen das eigenständige Tool `ask_postdoc_tool` über `SMART_MCP_URL/mcp`.
 
 The `websearch` tool currently uses DuckDuckGo's free instant-answer endpoint and does not need an API key.
 

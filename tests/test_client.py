@@ -39,12 +39,12 @@ def test_resolve_api_key_keeps_openai_backward_compatibility(
 def test_toolset_options_match_expected_modes() -> None:
     labels = {option["label"] for option in langchain_chat.TOOLSET_OPTIONS.values()}
     assert labels == {
-        "no tools",
+        "none",
         "mcp-physics",
         "websearch",
-        "mcp-physics+websearch",
-        "physics-postdoc",
-        "physics-postdoc+websearch",
+        "mcp-physics + websearch",
+        "physik-postdoc",
+        "physik-postdoc + websearch",
     }
     assert langchain_chat.TOOLSET_OPTIONS["2"]["tools"] == ["websearch"]
     assert "websearch" in langchain_chat.TOOLSET_OPTIONS["5"]["tools"]

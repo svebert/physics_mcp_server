@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -30,9 +31,10 @@ Arbeite strikt so:
 4) Gib Ergebnisse mit Einheit, Plausibilitätsprüfung und klaren Annahmen aus.
 
 Tool-Anweisung für mcp-physics:
-- Nutze `get_supported_cases` bei Unsicherheit über Lastfälle.
-- Nutze `get_model_assumptions` für Modellgrenzen.
-- Nutze `solve_beam_case` mit SI-Feldern: case, length_m, youngs_modulus_pa,
+- Nutze `get_supported_cases_tool` bei Unsicherheit über Lastfälle.
+- Nutze `get_model_assumptions_tool` für Modellgrenzen.
+- Nutze `solve_beam_case_tool` mit einem payload-Objekt und SI-Feldern:
+  case, length_m, youngs_modulus_pa,
   second_moment_m4, optional point_load_n, point_load_position_m, udl_n_per_m, samples.
 - Bei nicht-SI Eingaben (kN, GPa, mm^4, cm, ...) immer vor Tool-Call nach SI konvertieren.
 - Bei mehrsprachigen Eingaben Begriffe robust auf Tool-Felder mappen.
@@ -61,27 +63,6 @@ def _resolve_api_key(provider: str) -> str | None:
     return None
 
 
-def _invoke_physics_tool(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    with httpx.Client(timeout=30) as client:
-        response = client.post(f"{PHYSICS_MCP_URL}/dev/tools/{tool_name}", json=payload)
-    if response.is_success:
-        return {"ok": True, "result": response.json()}
-    details: Any
-    try:
-        details = response.json()
-    except ValueError:
-        details = response.text
-    return {
-        "ok": False,
-        "error": {
-            "status_code": response.status_code,
-            "tool": tool_name,
-            "input": payload,
-            "details": details,
-        },
-    }
-
-
 def _build_chat_model() -> Any:
     api_key = _resolve_api_key(LLM_PROVIDER)
     if not api_key:
@@ -99,41 +80,7 @@ def _build_chat_model() -> Any:
 def _build_tools(enable_web_search: bool) -> list[Any]:
     from langchain_core.tools import tool
 
-    @tool
-    def solve_beam_case(
-        case: str,
-        length_m: float,
-        youngs_modulus_pa: float,
-        second_moment_m4: float,
-        point_load_n: float | None = None,
-        point_load_position_m: float | None = None,
-        udl_n_per_m: float | None = None,
-        samples: int | None = None,
-    ) -> dict[str, Any]:
-        payload = {
-            "case": case,
-            "length_m": length_m,
-            "youngs_modulus_pa": youngs_modulus_pa,
-            "second_moment_m4": second_moment_m4,
-        }
-        optional_fields = {
-            "point_load_n": point_load_n,
-            "point_load_position_m": point_load_position_m,
-            "udl_n_per_m": udl_n_per_m,
-            "samples": samples,
-        }
-        payload.update({key: value for key, value in optional_fields.items() if value is not None})
-        return _invoke_physics_tool("solve_beam_case", payload)
-
-    @tool
-    def get_supported_cases() -> dict[str, Any]:
-        return _invoke_physics_tool("get_supported_cases", {})
-
-    @tool
-    def get_model_assumptions() -> dict[str, Any]:
-        return _invoke_physics_tool("get_model_assumptions", {})
-
-    tools: list[Any] = [solve_beam_case, get_supported_cases, get_model_assumptions]
+    tools: list[Any] = []
 
     if enable_web_search:
 
@@ -162,6 +109,26 @@ def _build_tools(enable_web_search: bool) -> list[Any]:
     return tools
 
 
+async def _build_physics_mcp_tools() -> tuple[Any, list[Any]]:
+    try:
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+    except ImportError as exc:
+        raise RuntimeError(
+            "Missing MCP adapter dependency. Install `langchain-mcp-adapters`, "
+            "for example with `pip install -e '.[dev]'`."
+        ) from exc
+
+    client = MultiServerMCPClient(
+        {
+            "physics": {
+                "url": f"{PHYSICS_MCP_URL}/mcp",
+                "transport": "streamable_http",
+            }
+        }
+    )
+    return client, await client.get_tools()
+
+
 def _extract_text(response: Any) -> str:
     content = response.content
     if isinstance(content, str):
@@ -181,42 +148,49 @@ def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     model = _build_chat_model()
-    tools = _build_tools(enable_web_search=enable_web_search)
+    mcp_client, mcp_tools = asyncio.run(_build_physics_mcp_tools())
+    local_tools = _build_tools(enable_web_search=enable_web_search)
+    tools = [*mcp_tools, *local_tools]
     tool_lookup = {tool.name: tool for tool in tools}
 
     history: list[Any] = [HumanMessage(content=question)]
     request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
     current_model = model.bind_tools(tools)
-    response = current_model.invoke(request_messages)
-
-    while getattr(response, "tool_calls", None):
-        history.append(response)
-        for call in response.tool_calls:
-            tool_name = call["name"]
-            tool_args = call.get("args", {})
-            tool_impl = tool_lookup.get(tool_name)
-            if tool_impl is None:
-                tool_result: dict[str, Any] = {
-                    "ok": False,
-                    "error": {"status_code": None, "tool": tool_name, "input": tool_args},
-                }
-            else:
-                try:
-                    tool_result = tool_impl.invoke(tool_args)
-                except Exception as exc:
-                    tool_result = {
-                        "ok": False,
-                        "error": {
-                            "status_code": None,
-                            "tool": tool_name,
-                            "input": tool_args,
-                            "details": f"Tool execution failed: {exc}",
-                        },
-                    }
-            history.append(ToolMessage(content=json.dumps(tool_result, ensure_ascii=False), tool_call_id=call["id"]))
-
-        request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
+    try:
         response = current_model.invoke(request_messages)
+
+        while getattr(response, "tool_calls", None):
+            history.append(response)
+            for call in response.tool_calls:
+                tool_name = call["name"]
+                tool_args = call.get("args", {})
+                tool_impl = tool_lookup.get(tool_name)
+                if tool_impl is None:
+                    tool_result: dict[str, Any] = {
+                        "ok": False,
+                        "error": {"status_code": None, "tool": tool_name, "input": tool_args},
+                    }
+                else:
+                    try:
+                        tool_result = tool_impl.invoke(tool_args)
+                    except Exception as exc:
+                        tool_result = {
+                            "ok": False,
+                            "error": {
+                                "status_code": None,
+                                "tool": tool_name,
+                                "input": tool_args,
+                                "details": f"Tool execution failed: {exc}",
+                            },
+                        }
+                history.append(ToolMessage(content=json.dumps(tool_result, ensure_ascii=False), tool_call_id=call["id"]))
+
+            request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
+            response = current_model.invoke(request_messages)
+    finally:
+        close_fn = getattr(mcp_client, "aclose", None)
+        if callable(close_fn):
+            asyncio.run(close_fn())
 
     return _extract_text(response)
 

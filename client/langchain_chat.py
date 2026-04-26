@@ -51,7 +51,7 @@ Nutzung der mcp-physics Tools:
 
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
-    "0": {"label": "no tools", "tools": [], "needs_mcp": False, "system_prompt": None},
+    "0": {"label": "none", "tools": [], "needs_mcp": False, "system_prompt": None},
     "1": {
         "label": "mcp-physics",
         "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool"],
@@ -65,19 +65,19 @@ TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
         "system_prompt": None,
     },
     "3": {
-        "label": "mcp-physics+websearch",
+        "label": "mcp-physics + websearch",
         "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool", "websearch"],
         "needs_mcp": True,
         "system_prompt": None,
     },
     "4": {
-        "label": "physics-postdoc",
+        "label": "physik-postdoc",
         "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool"],
         "needs_mcp": True,
         "system_prompt": f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}",
     },
     "5": {
-        "label": "physics-postdoc+websearch",
+        "label": "physik-postdoc + websearch",
         "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool", "websearch"],
         "needs_mcp": True,
         "system_prompt": (

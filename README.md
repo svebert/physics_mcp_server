@@ -19,15 +19,16 @@ Minimal, production-clean pilot project exposing simple Euler-Bernoulli beam cal
 ## Architecture overview
 
 - `physics_core/`: deterministic, pure physics logic (no MCP dependency).
-- `mcp_server/`: MCP tool wrapper + FastAPI app.
+- `mcp_server/` (`mcp-physics`): MCP tool wrapper + FastAPI app.
   - MCP endpoint mounted at `/mcp` (Streamable HTTP transport).
   - Health endpoint at `/health`.
   - Dev helper endpoint at `/dev/tools/{tool_name}` for quick local testing.
-- `smart_mcp_server/`: smarter, parallel MCP server with natural-language endpoint.
+- `smart_mcp_server/` (`physik-postdoc` / `smart-mcp-server`): eigener Agent (LangChain chat client) mit natürlicher Sprache.
+  - Nutzt die von `mcp-physics` bereitgestellten MCP-Functions als Tools (über MCP-Client-Adapter).
   - MCP endpoint mounted at `/mcp`.
   - Health endpoint at `/health`.
   - NL endpoint at `/v1/ask`.
-- `client/`: LangChain-based CLI tool-calling chat client with provider-agnostic model support.
+- `client/`: LangChain-based Test-Chat-Client mit umschaltbaren Tool-Sets.
 - `tests/`: unit, validation, integration-like, and smoke tests.
 
 ## Repository tree
@@ -205,12 +206,14 @@ Input UX in the client:
 
 
 The client uses **LangChain chat models** and supports these Tool-Sets:
-- `0`: `no tools`
+- `0`: `none`
 - `1`: `mcp-physics`
 - `2`: `websearch`
-- `3`: `mcp-physics+websearch`
-- `4`: `physics-postdoc` (Postdoc-Context + mcp-physics)
-- `5`: `physics-postdoc+websearch` (Postdoc-Context + mcp-physics + Websuche)
+- `3`: `mcp-physics + websearch`
+- `4`: `physik-postdoc`
+- `5`: `physik-postdoc + websearch`
+
+Wichtig: Für vollständige Funktionalität des Test-Clients mit den Modi `mcp-physics`, `physik-postdoc` und deren Websearch-Kombinationen müssen `mcp-physics` **und** `smart-mcp-server` parallel laufen.
 
 `mcp-physics` modes now use a real MCP client adapter against `PHYSICS_MCP_URL/mcp` (streamable HTTP) instead of the `/dev/tools/...` helper route.
 

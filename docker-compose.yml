@@ -10,3 +10,28 @@ services:
     environment:
       - PHYSICS_MCP_HOST=0.0.0.0
       - PHYSICS_MCP_PORT=8080
+    networks:
+      - physics-mcp-net
+
+  physics-smart-mcp:
+    build: .
+    container_name: physics-smart-mcp
+    restart: unless-stopped
+    depends_on:
+      - physics-mcp
+    ports:
+      - "8090:8090"
+    env_file:
+      - .env
+    environment:
+      - SMART_PHYSICS_MCP_HOST=0.0.0.0
+      - SMART_PHYSICS_MCP_PORT=8090
+      - PHYSICS_MCP_URL=http://physics-mcp:8080
+    command: ["physics-smart-mcp-server"]
+    networks:
+      - physics-mcp-net
+
+networks:
+  physics-mcp-net:
+    name: physics-mcp-net
+    driver: bridge

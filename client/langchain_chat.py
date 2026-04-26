@@ -206,6 +206,13 @@ def _build_web_search_tool() -> Any:
     return websearch
 
 
+def _invoke_tool(tool_impl: Any, tool_args: dict[str, Any]) -> Any:
+    """Invoke a LangChain tool, supporting both async-only and sync implementations."""
+    if hasattr(tool_impl, "ainvoke"):
+        return asyncio.run(tool_impl.ainvoke(tool_args))
+    return tool_impl.invoke(tool_args)
+
+
 def _parse_semver(version: str) -> tuple[int, int, int]:
     normalized = version.split("+", 1)[0].split("-", 1)[0]
     parts = normalized.split(".")
@@ -442,7 +449,7 @@ def main() -> None:
                 else:
                     try:
                         logger.info("Invoking tool '%s' with args=%s", tool_name, tool_args)
-                        tool_result = tool_impl.invoke(tool_args)
+                        tool_result = _invoke_tool(tool_impl, tool_args)
                     except Exception as exc:  # pragma: no cover - defensive wrapper for interactive loop
                         logger.exception("Tool execution failed for '%s'", tool_name)
                         tool_result = {

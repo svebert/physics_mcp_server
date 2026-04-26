@@ -23,6 +23,10 @@ Minimal, production-clean pilot project exposing simple Euler-Bernoulli beam cal
   - MCP endpoint mounted at `/mcp` (Streamable HTTP transport).
   - Health endpoint at `/health`.
   - Dev helper endpoint at `/dev/tools/{tool_name}` for quick local testing.
+- `smart_mcp_server/`: smarter, parallel MCP server with natural-language endpoint.
+  - MCP endpoint mounted at `/mcp`.
+  - Health endpoint at `/health`.
+  - NL endpoint at `/v1/ask`.
 - `client/`: LangChain-based CLI tool-calling chat client with provider-agnostic model support.
 - `tests/`: unit, validation, integration-like, and smoke tests.
 
@@ -36,6 +40,9 @@ physics-mcp/
 │   ├── app.py
 │   ├── logging_config.py
 │   └── middleware.py
+├── smart_mcp_server/
+│   ├── app.py
+│   └── __init__.py
 ├── physics_core/
 │   ├── assumptions.py
 │   ├── models.py
@@ -199,13 +206,32 @@ Input UX in the client:
 The client uses **LangChain chat models** and supports these Tool-Sets:
 - `0`: kein Tool
 - `1`: nur `physics-mcp`
-- `2`: nur `websearch`
-- `3`: `websearch` + `physics-mcp`
+- `2`: `physics post doc` (Postdoc-Context + mcp-physics)
+- `3`: `websearch+physik post doc` (Postdoc-Context + mcp-physics + Websuche)
 
 If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/health` and prints a clear startup error if the server is offline.
 
 If the model produces invalid tool arguments, the client returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
 Der Dev-Tool-Endpunkt normalisiert außerdem häufige Kurzschreibweisen aus LLM-Tool-Calls (z. B. `l`/`e`/`i`, `point_load_kn`, `udl_kn_per_m`) und kann den Lastfall bei fehlendem `case` aus den Lastparametern ableiten.
+
+## Run the smarter MCP server locally
+
+```bash
+physics-smart-mcp-server
+# or
+python3 -m smart_mcp_server.app
+```
+
+Example request:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8090/v1/ask" \
+  -H 'content-type: application/json' \
+  -d '{
+    "question": "Für einen 6 m Träger mit 12 kN Mittellast: Reaktionen und Durchbiegung.",
+    "enable_web_search": true
+  }'
+```
 
 
 Beispiel-Prompts (Deutsch):

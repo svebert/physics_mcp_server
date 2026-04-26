@@ -166,7 +166,9 @@ def get_model_assumptions_tool() -> list[str]:
     return ASSUMPTIONS_V1
 
 
-LOG_CONFIG = configure_logging(service_name="physics-mcp", app_logger_name="physics-mcp")
+LOG_LEVEL_NAME = os.getenv("PHYSICS_MCP_LOG_LEVEL", "info").strip().lower()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME.upper(), logging.INFO)
+LOG_CONFIG = configure_logging(service_name="physics-mcp", app_logger_name="physics-mcp", level=LOG_LEVEL)
 
 mcp_http_app = mcp.streamable_http_app()
 
@@ -178,7 +180,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="physics-mcp", version="0.1.0", lifespan=lifespan)
-rate_limit_hook = RateLimitHook()
+rate_limit_hook = RateLimitHook(logger_name="physics-mcp")
 app.middleware("http")(rate_limit_hook)
 
 
@@ -241,7 +243,7 @@ app.mount("/", mcp_http_app)
 def run() -> None:
     host = os.getenv("PHYSICS_MCP_HOST", "0.0.0.0")
     port = int(os.getenv("PHYSICS_MCP_PORT", "8080"))
-    log_level = os.getenv("PHYSICS_MCP_LOG_LEVEL", "info")
+    log_level = LOG_LEVEL_NAME
     logger.info(
         "Starting physics-mcp server",
         extra={"host": host, "port": port, "reload": False, "log_level": log_level},

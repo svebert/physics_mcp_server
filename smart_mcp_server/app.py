@@ -15,13 +15,16 @@ from pydantic import BaseModel, Field
 
 from mcp_server.env_loader import load_project_env
 from mcp_server.logging_config import configure_logging
+from mcp_server.middleware import RateLimitHook
 
 load_project_env(Path(__file__).resolve().parent)
 
 logger = logging.getLogger("physics-postdoc-mcp")
 smart_mcp = FastMCP("physics-postdoc-mcp")
 
-LOG_CONFIG = configure_logging(service_name="physics-postdoc-mcp", app_logger_name="physics-postdoc-mcp")
+LOG_LEVEL_NAME = os.getenv("SMART_PHYSICS_MCP_LOG_LEVEL", os.getenv("PHYSICS_MCP_LOG_LEVEL", "info")).strip().lower()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME.upper(), logging.INFO)
+LOG_CONFIG = configure_logging(service_name="physics-postdoc-mcp", app_logger_name="physics-postdoc-mcp", level=LOG_LEVEL)
 PHYSICS_MCP_URL = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -223,6 +226,8 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="physics-postdoc-mcp", version="0.1.0", lifespan=lifespan)
+rate_limit_hook = RateLimitHook(logger_name="physics-postdoc-mcp")
+app.middleware("http")(rate_limit_hook)
 
 
 @app.get("/health")
@@ -250,7 +255,7 @@ def run() -> None:
     host = os.getenv("SMART_PHYSICS_MCP_HOST", "0.0.0.0")
     port = int(os.getenv("SMART_PHYSICS_MCP_PORT", "8090"))
     logger.info("Starting physics-postdoc-mcp", extra={"host": host, "port": port})
-    uvicorn.run("smart_mcp_server.app:app", host=host, port=port, log_level="info", log_config=LOG_CONFIG)
+    uvicorn.run("smart_mcp_server.app:app", host=host, port=port, log_level=LOG_LEVEL_NAME, log_config=LOG_CONFIG)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import logging
 import logging.config
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -66,7 +67,8 @@ def configure_logging(
     log_dir = Path(os.getenv("PHYSICS_MCP_LOG_DIR", "logs"))
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    log_file = log_dir / f"{service_name}.log"
+    current_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    log_file = log_dir / f"{service_name}-{current_day}.log"
 
     logging_config = _build_uvicorn_log_config(log_file=log_file, level=level, app_logger_name=app_logger_name)
     logging.config.dictConfig(logging_config)

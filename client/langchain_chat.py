@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -50,22 +51,34 @@ Nutzung der mcp-physics Tools:
 
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
-    "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False, "system_prompt": None},
+    "0": {"label": "no tools", "tools": [], "needs_mcp": False, "system_prompt": None},
     "1": {
-        "label": "Nur physics-mcp",
+        "label": "mcp-physics",
         "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions"],
         "needs_mcp": True,
         "system_prompt": None,
     },
     "2": {
-        "label": "physics post doc",
+        "label": "websearch",
+        "tools": ["websearch"],
+        "needs_mcp": False,
+        "system_prompt": None,
+    },
+    "3": {
+        "label": "mcp-physics+websearch",
+        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions", "websearch"],
+        "needs_mcp": True,
+        "system_prompt": None,
+    },
+    "4": {
+        "label": "physics-postdoc",
         "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions"],
         "needs_mcp": True,
         "system_prompt": f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}",
     },
-    "3": {
-        "label": "websearch+physik post doc",
-        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions", "web_search"],
+    "5": {
+        "label": "physics-postdoc+websearch",
+        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions", "websearch"],
         "needs_mcp": True,
         "system_prompt": (
             f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}\n\n"
@@ -90,37 +103,6 @@ def _resolve_api_key(provider: str) -> str | None:
         return os.getenv("OPENAI_API_KEY")
 
     return None
-
-
-def invoke_server_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
-    with httpx.Client(timeout=30) as client:
-        try:
-            response = client.post(f"{DEFAULT_SERVER}/dev/tools/{tool_name}", json=args)
-        except httpx.HTTPError as exc:
-            return {
-                "ok": False,
-                "error": {
-                    "status_code": None,
-                    "tool": tool_name,
-                    "input": args,
-                    "details": f"Cannot reach physics MCP server at {DEFAULT_SERVER}: {exc}",
-                },
-            }
-        if response.is_success:
-            return {"ok": True, "result": response.json()}
-        try:
-            details: Any = response.json()
-        except ValueError:
-            details = response.text
-        return {
-            "ok": False,
-            "error": {
-                "status_code": response.status_code,
-                "tool": tool_name,
-                "input": args,
-                "details": details,
-            },
-        }
 
 
 def _ensure_server_is_reachable() -> None:
@@ -175,7 +157,6 @@ def _build_chat_model() -> Any:
         ) from exc
 
 
-
 def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     max_results = max(1, min(max_results, 10))
     try:
@@ -225,77 +206,37 @@ def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
 
     return {"ok": True, "query": query, "results": results[:max_results]}
 
-def _build_mcp_tools() -> list[Any]:
-    from langchain_core.tools import tool
-
-    @tool
-    def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
-        """Search the web for current context and return short snippets with URLs."""
-        return _web_search(query=query, max_results=max_results)
-
-    @tool
-    def solve_beam_case(
-        case: str,
-        length_m: float,
-        youngs_modulus_pa: float,
-        second_moment_m4: float,
-        point_load_n: float | None = None,
-        point_load_position_m: float | None = None,
-        udl_n_per_m: float | None = None,
-        samples: int | None = None,
-    ) -> dict[str, Any]:
-        """Solve one supported beam case and return reactions, maxima, and curves."""
-        payload = {
-            "case": case,
-            "length_m": length_m,
-            "youngs_modulus_pa": youngs_modulus_pa,
-            "second_moment_m4": second_moment_m4,
-        }
-        optional_fields = {
-            "point_load_n": point_load_n,
-            "point_load_position_m": point_load_position_m,
-            "udl_n_per_m": udl_n_per_m,
-            "samples": samples,
-        }
-        payload.update({key: value for key, value in optional_fields.items() if value is not None})
-        return invoke_server_tool("solve_beam_case", payload)
-
-    @tool
-    def get_supported_cases() -> dict[str, Any]:
-        """Get all case names supported by physics_core v0.1."""
-        return invoke_server_tool("get_supported_cases", {})
-
-    @tool
-    def get_model_assumptions() -> dict[str, Any]:
-        """Get assumptions and limits of the beam model."""
-        return invoke_server_tool("get_model_assumptions", {})
-
-    return [web_search, solve_beam_case, get_supported_cases, get_model_assumptions]
-
 
 def _build_web_search_tool() -> Any:
     from langchain_core.tools import tool
 
     @tool
-    def web_search(query: str) -> dict[str, Any]:
-        """Run a lightweight public web search and return short evidence snippets."""
-        with httpx.Client(timeout=15) as client:
-            response = client.get(
-                "https://api.duckduckgo.com/",
-                params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-            )
-            response.raise_for_status()
-            body = response.json()
+    def websearch(query: str, max_results: int = 5) -> dict[str, Any]:
+        """Search the web for current context and return short snippets with URLs."""
+        return _web_search(query=query, max_results=max_results)
 
-        snippets: list[str] = []
-        if body.get("AbstractText"):
-            snippets.append(str(body["AbstractText"]))
-        for item in body.get("RelatedTopics", [])[:5]:
-            if isinstance(item, dict) and item.get("Text"):
-                snippets.append(str(item["Text"]))
-        return {"ok": True, "query": query, "snippets": snippets[:5]}
+    return websearch
 
-    return web_search
+
+async def _build_mcp_tools() -> tuple[Any, list[Any]]:
+    try:
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+    except ImportError as exc:
+        raise RuntimeError(
+            "Missing MCP adapter dependency. Install `langchain-mcp-adapters`, "
+            "for example with `pip install -e '.[dev]'`."
+        ) from exc
+
+    client = MultiServerMCPClient(
+        {
+            "physics": {
+                "url": f"{DEFAULT_SERVER}/mcp",
+                "transport": "streamable_http",
+            }
+        }
+    )
+    tools = await client.get_tools()
+    return client, tools
 
 
 def _read_question() -> str:
@@ -326,10 +267,10 @@ def _select_toolset_interactive() -> str:
     for key, option in TOOLSET_OPTIONS.items():
         print(f"  {key}: {option['label']}")
 
-    choices = "-".join([min(TOOLSET_OPTIONS.keys()), max(TOOLSET_OPTIONS.keys())])
+    choices = f"{min(TOOLSET_OPTIONS.keys())}-{max(TOOLSET_OPTIONS.keys())}"
     selection = prompt(f"Auswahl [{choices}, Default 1]: ").strip() or "1"
     if selection not in TOOLSET_OPTIONS:
-        print(f"Ungültige Auswahl '{selection}', nehme Default 1 (Nur physics-mcp).")
+        print(f"Ungültige Auswahl '{selection}', nehme Default 1 (mcp-physics).")
         return "1"
     return selection
 
@@ -353,15 +294,15 @@ def main() -> None:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     model = _build_chat_model()
-    mcp_tools = _build_mcp_tools()
     web_tool = _build_web_search_tool()
-    all_tools = mcp_tools + [web_tool]
-    tool_lookup = {tool.name: tool for tool in all_tools}
+    mcp_client: Any | None = None
+    mcp_tools: list[Any] = []
 
     toolset_key = _select_toolset_interactive()
     toolset = TOOLSET_OPTIONS[toolset_key]
     if toolset["needs_mcp"]:
         _ensure_server_is_reachable()
+        mcp_client, mcp_tools = asyncio.run(_build_mcp_tools())
 
     history: list[Any] = []
 
@@ -379,13 +320,16 @@ def main() -> None:
         if question.lower() == "/tools":
             toolset_key = _select_toolset_interactive()
             toolset = TOOLSET_OPTIONS[toolset_key]
-            if toolset["needs_mcp"]:
+            if toolset["needs_mcp"] and not mcp_tools:
                 _ensure_server_is_reachable()
+                mcp_client, mcp_tools = asyncio.run(_build_mcp_tools())
             print(f"\nAktives Tool-Set: {toolset['label']}")
             continue
 
         history.append(HumanMessage(content=question))
 
+        tool_pool = [*mcp_tools, web_tool]
+        tool_lookup = {tool.name: tool for tool in tool_pool}
         selected_tools = [tool_lookup[name] for name in toolset["tools"] if name in tool_lookup]
         current_model = model.bind_tools(selected_tools) if selected_tools else model
         request_messages = list(history)
@@ -426,6 +370,11 @@ def main() -> None:
         history.append(response)
         print("\nAntwort:\n")
         print(_extract_text(response))
+
+    if mcp_client is not None:
+        close_fn = getattr(mcp_client, "aclose", None)
+        if callable(close_fn):
+            asyncio.run(close_fn())
 
 
 if __name__ == "__main__":

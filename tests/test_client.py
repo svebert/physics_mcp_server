@@ -6,21 +6,6 @@ import pytest
 from client import langchain_chat
 
 
-def test_invoke_server_tool_returns_structured_error_on_connect_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def _raise_connect_error(*args: object, **kwargs: object) -> None:
-        request = httpx.Request("POST", "http://127.0.0.1:8080/dev/tools/solve_beam_case")
-        raise httpx.ConnectError("connection refused", request=request)
-
-    monkeypatch.setattr(httpx.Client, "post", _raise_connect_error)
-    outcome = langchain_chat.invoke_server_tool("solve_beam_case", {"case": "cantilever"})
-
-    assert outcome["ok"] is False
-    assert outcome["error"]["status_code"] is None
-    assert "Cannot reach physics MCP server" in outcome["error"]["details"]
-
-
 def test_ensure_server_is_reachable_raises_runtime_error_on_health_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -51,9 +36,15 @@ def test_resolve_api_key_keeps_openai_backward_compatibility(
     assert langchain_chat._resolve_api_key("openai") == "legacy-openai-key"
 
 
-def test_toolset_options_include_new_postdoc_modes() -> None:
-    assert "2" in langchain_chat.TOOLSET_OPTIONS
-    assert "3" in langchain_chat.TOOLSET_OPTIONS
-    assert langchain_chat.TOOLSET_OPTIONS["2"]["label"] == "physics post doc"
-    assert "web_search" in langchain_chat.TOOLSET_OPTIONS["3"]["tools"]
-
+def test_toolset_options_match_expected_modes() -> None:
+    labels = {option["label"] for option in langchain_chat.TOOLSET_OPTIONS.values()}
+    assert labels == {
+        "no tools",
+        "mcp-physics",
+        "websearch",
+        "mcp-physics+websearch",
+        "physics-postdoc",
+        "physics-postdoc+websearch",
+    }
+    assert langchain_chat.TOOLSET_OPTIONS["2"]["tools"] == ["websearch"]
+    assert "websearch" in langchain_chat.TOOLSET_OPTIONS["5"]["tools"]

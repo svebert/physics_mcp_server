@@ -85,6 +85,7 @@ pip install -e '.[dev]'
 Optionale Gruppen:
 
 - `anthropic`: Fügt `langchain-anthropic` für Claude/Anthropic als Provider hinzu.
+- Der MCP-Adapter (`langchain-mcp-adapters`) ist Teil der Standard-Dependencies des Clients.
 
 ```bash
 pip install -e '.[dev,anthropic]'
@@ -204,10 +205,16 @@ Input UX in the client:
 
 
 The client uses **LangChain chat models** and supports these Tool-Sets:
-- `0`: kein Tool
-- `1`: nur `physics-mcp`
-- `2`: `physics post doc` (Postdoc-Context + mcp-physics)
-- `3`: `websearch+physik post doc` (Postdoc-Context + mcp-physics + Websuche)
+- `0`: `no tools`
+- `1`: `mcp-physics`
+- `2`: `websearch`
+- `3`: `mcp-physics+websearch`
+- `4`: `physics-postdoc` (Postdoc-Context + mcp-physics)
+- `5`: `physics-postdoc+websearch` (Postdoc-Context + mcp-physics + Websuche)
+
+`mcp-physics` modes now use a real MCP client adapter against `PHYSICS_MCP_URL/mcp` (streamable HTTP) instead of the `/dev/tools/...` helper route.
+
+The `websearch` tool currently uses DuckDuckGo's free instant-answer endpoint and does not need an API key.
 
 If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/health` and prints a clear startup error if the server is offline.
 

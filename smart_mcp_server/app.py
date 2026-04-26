@@ -28,6 +28,7 @@ LOG_CONFIG = configure_logging(service_name="physics-postdoc-mcp", app_logger_na
 PHYSICS_MCP_URL = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MAX_TOOL_ROUNDS = int(os.getenv("SMART_MCP_MAX_TOOL_ROUNDS", "12"))
 
 POSTDOC_CONTEXT = """
 Du bist ein Physik- und Ingenieurwesen-Postdoc und bearbeitest MINT-Anfragen in jeder Sprache.
@@ -171,10 +172,39 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
     history: list[Any] = [HumanMessage(content=question)]
     request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
     current_model = model.bind_tools(tools)
+    guardrail_message = (
+        "Ich breche hier ab, weil das Modell wiederholt dieselben Tool-Aufrufe erzeugt hat. "
+        "Bitte formuliere die Frage präziser oder nutze direkt das mcp-physics Tool-Set."
+    )
     try:
         response = await current_model.ainvoke(request_messages)
+        tool_round = 0
+        previous_round_signatures: tuple[str, ...] = ()
+        repeated_rounds = 0
 
         while getattr(response, "tool_calls", None):
+            tool_round += 1
+            if tool_round > MAX_TOOL_ROUNDS:
+                logger.warning("Stopping postdoc agent after reaching max tool rounds", extra={"max_rounds": MAX_TOOL_ROUNDS})
+                return guardrail_message
+
+            current_round_signatures = tuple(
+                json.dumps({"name": call["name"], "args": call.get("args", {})}, ensure_ascii=False, sort_keys=True)
+                for call in response.tool_calls
+            )
+            if current_round_signatures == previous_round_signatures:
+                repeated_rounds += 1
+            else:
+                repeated_rounds = 0
+            previous_round_signatures = current_round_signatures
+
+            if repeated_rounds >= 2:
+                logger.warning(
+                    "Stopping postdoc agent due to repeated tool-call rounds",
+                    extra={"tool_signatures": current_round_signatures},
+                )
+                return guardrail_message
+
             history.append(response)
             for call in response.tool_calls:
                 tool_name = call["name"]

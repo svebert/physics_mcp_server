@@ -89,3 +89,38 @@ def test_local_web_search_tool_has_description() -> None:
     web_tools = [tool for tool in tools if getattr(tool, "name", "") == "web_search"]
     assert web_tools
     assert getattr(web_tools[0], "description", "")
+
+
+def test_run_postdoc_agent_stops_repeated_tool_rounds(monkeypatch) -> None:
+    class _LoopingResponse:
+        tool_calls = [{"id": "call-1", "name": "ask_physics", "args": {"value": 3}}]
+        content = ""
+
+    class _FakeModel:
+        def bind_tools(self, _tools):
+            return self
+
+        async def ainvoke(self, _messages):
+            return _LoopingResponse()
+
+    class _AsyncTool:
+        name = "ask_physics"
+
+        async def ainvoke(self, _args):
+            return {"ok": True}
+
+    class _FakeClient:
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(smart_module, "_build_chat_model", lambda: _FakeModel())
+    monkeypatch.setattr(smart_module, "MAX_TOOL_ROUNDS", 8)
+
+    async def _fake_build_physics_mcp_tools():
+        return _FakeClient(), [_AsyncTool()]
+
+    monkeypatch.setattr(smart_module, "_build_physics_mcp_tools", _fake_build_physics_mcp_tools)
+    monkeypatch.setattr(smart_module, "_build_tools", lambda enable_web_search: [])
+
+    answer = asyncio.run(smart_module.run_postdoc_agent("Testfrage", enable_web_search=False))
+    assert "wiederholt" in answer

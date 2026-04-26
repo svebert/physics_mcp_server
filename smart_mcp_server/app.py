@@ -42,6 +42,7 @@ Arbeite strikt so:
 4) Gib Ergebnisse mit Einheit, Plausibilitätsprüfung und klaren Annahmen aus.
 
 Tool-Anweisung für mcp-physics:
+- Wenn die Frage nach Trägern/Balken, Lagerreaktionen, Biegemomenten oder Durchbiegung fragt, musst du `solve_beam_case_tool` nutzen (keine reine Freitextrechnung).
 - Nutze `get_supported_cases_tool` nur bei echter Unsicherheit über Lastfälle (maximal 1x pro Frage).
 - Nutze `get_model_assumptions_tool` für Modellgrenzen.
 - Nutze `solve_beam_case_tool` bevorzugt genau 1x pro Frage und dann direkt die Ergebnisformulierung.
@@ -53,6 +54,24 @@ Tool-Anweisung für mcp-physics:
 - Bei mehrsprachigen Eingaben Begriffe robust auf Tool-Felder mappen.
 - Bei inkonsistenten Einheiten zuerst aktiv klären, dann rechnen.
 """.strip()
+
+
+def _needs_beam_solver(question: str) -> bool:
+    lowered = question.lower()
+    keywords = (
+        "träger",
+        "balken",
+        "lagerreak",
+        "biegemoment",
+        "durchbieg",
+        "einfeld",
+        "beam",
+        "deflection",
+        "bending moment",
+        "simply supported",
+        "cantilever",
+    )
+    return any(keyword in lowered for keyword in keywords)
 
 
 class AskRequest(BaseModel):
@@ -208,6 +227,22 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
         logger.debug("postdoc-trace model-request trace_id=%s messages=%s", trace_id, _summarize_messages(request_messages))
         response = await current_model.ainvoke(request_messages)
         logger.debug("postdoc-trace model-response trace_id=%s content=%s tool_calls=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS], json.dumps(getattr(response, "tool_calls", []), ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
+        if not getattr(response, "tool_calls", None) and _needs_beam_solver(question) and mcp_tools:
+            force_tool_messages = [
+                SystemMessage(content=POSTDOC_CONTEXT),
+                SystemMessage(
+                    content=(
+                        "Für diese Anfrage ist ein mcp-physics Tool-Aufruf verpflichtend. "
+                        "Rufe jetzt `solve_beam_case_tool` auf und liefere danach erst die Antwort."
+                    )
+                ),
+                *history,
+            ]
+            logger.debug("postdoc-trace forcing-mcp-tool trace_id=%s reason=beam_keywords_detected", trace_id)
+            forced_model = model.bind_tools(mcp_tools, tool_choice="required")
+            logger.debug("postdoc-trace model-request trace_id=%s messages=%s", trace_id, _summarize_messages(force_tool_messages))
+            response = await forced_model.ainvoke(force_tool_messages)
+            logger.debug("postdoc-trace model-response trace_id=%s content=%s tool_calls=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS], json.dumps(getattr(response, "tool_calls", []), ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
         tool_round = 0
         previous_round_signatures: tuple[str, ...] = ()
         repeated_rounds = 0

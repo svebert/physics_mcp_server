@@ -63,6 +63,7 @@ class RateLimitHook:
     async def __call__(self, request: Request, call_next):
         client = request.client.host if request.client else "unknown"
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+        user_agent = request.headers.get("user-agent", "unknown")
         self._counter[client] += 1
         start = time.perf_counter()
         debug_enabled = self._logger.isEnabledFor(logging.DEBUG)
@@ -79,31 +80,41 @@ class RateLimitHook:
 
         if debug_enabled:
             content_type = response.headers.get("content-type", "")
+            inbound_summary = (
+                "HTTP inbound | request_id=%s direction=client->physics-postdoc-mcp "
+                "peer=%s method=%s path=%s status=%s elapsed_ms=%.2f user_agent=%s"
+            )
             if "text/event-stream" in content_type:
+                request_payload = self._truncate(self._decode_body(request_body))
                 self._logger.debug(
-                    "HTTP debug | request_id=%s method=%s path=%s client=%s status=%s elapsed_ms=%.2f request=%s response=<skipped stream>",
+                    inbound_summary,
                     request_id,
+                    client,
                     request.method,
                     request.url.path,
-                    client,
                     response.status_code,
                     elapsed_ms,
-                    self._truncate(self._decode_body(request_body)),
+                    user_agent,
                 )
+                self._logger.debug("  ├─ request_payload=%s", request_payload)
+                self._logger.debug("  └─ response_payload=<skipped stream>")
             else:
                 body_chunks = [chunk async for chunk in response.body_iterator]
                 response_body = b"".join(body_chunks)
+                request_payload = self._truncate(self._decode_body(request_body))
+                response_payload = self._truncate(self._decode_body(response_body))
                 self._logger.debug(
-                    "HTTP debug | request_id=%s method=%s path=%s client=%s status=%s elapsed_ms=%.2f request=%s response=%s",
+                    inbound_summary,
                     request_id,
+                    client,
                     request.method,
                     request.url.path,
-                    client,
                     response.status_code,
                     elapsed_ms,
-                    self._truncate(self._decode_body(request_body)),
-                    self._truncate(self._decode_body(response_body)),
+                    user_agent,
                 )
+                self._logger.debug("  ├─ request_payload=%s", request_payload)
+                self._logger.debug("  └─ response_payload=%s", response_payload)
                 response = Response(
                     content=response_body,
                     status_code=response.status_code,

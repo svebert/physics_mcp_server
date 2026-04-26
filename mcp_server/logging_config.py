@@ -53,6 +53,9 @@ def _build_uvicorn_log_config(log_file: Path, level: int, app_logger_name: str) 
             "uvicorn": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
             "uvicorn.error": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
             "uvicorn.access": {"handlers": ["access", "file_access"], "level": log_level_name, "propagate": False},
+            "mcp": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
+            "httpx": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
+            "httpcore": {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
             app_logger_name: {"handlers": ["default", "file_default"], "level": log_level_name, "propagate": False},
         },
     }

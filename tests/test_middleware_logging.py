@@ -25,5 +25,5 @@ def test_debug_logs_request_and_response_payloads() -> None:
     response = TestClient(app).post("/echo", json={"value": "hello"})
 
     assert response.status_code == 200
-    assert any('request={"value": "hello"}' in message for message in debug_messages)
-    assert any('response={"received": "hello"}' in message for message in debug_messages)
+    assert any('request_payload={"value": "hello"}' in message for message in debug_messages)
+    assert any('response_payload={"received": "hello"}' in message for message in debug_messages)

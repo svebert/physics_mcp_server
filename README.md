@@ -104,6 +104,10 @@ pip install -e '.[dev,anthropic]'
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 - `PHYSICS_MCP_LOG_DIR`: Verzeichnis für Log-Dateien (default: `logs`).
+- `.env` loading strategy:
+  - shared defaults from `<repo>/.env`
+  - optional overrides from `<repo>/mcp_server/.env` and `<repo>/smart_mcp_server/.env`
+  - explicitly exported process env vars keep highest priority
   - `logs/physics-mcp.log`
   - `logs/physics-postdoc-mcp.log`
   - `logs/physics-mcp-client.log`

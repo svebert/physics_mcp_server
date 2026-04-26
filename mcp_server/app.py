@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 import os
+from pathlib import Path
 import unicodedata
 from typing import Any
 
@@ -12,8 +13,11 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import ValidationError
 
 from physics_core import ASSUMPTIONS_V1, BeamInput, get_supported_cases, solve_beam_case
+from mcp_server.env_loader import load_project_env
 from mcp_server.logging_config import configure_logging
 from mcp_server.middleware import RateLimitHook
+
+load_project_env(Path(__file__).resolve().parent)
 
 logger = logging.getLogger("physics-mcp")
 

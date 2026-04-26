@@ -17,13 +17,31 @@ class RateLimitHook:
         self._logger = logging.getLogger(logger_name)
 
     async def _read_request_body(self, request: Request) -> bytes:
-        body = await request.body()
+        original_receive = request._receive  # type: ignore[attr-defined]
+        buffered_messages: list[dict[str, object]] = []
+        collected_body = bytearray()
+
+        while True:
+            message = await original_receive()
+            buffered_messages.append(message)
+
+            if message.get("type") != "http.request":
+                break
+
+            chunk = message.get("body", b"")
+            if isinstance(chunk, (bytes, bytearray)):
+                collected_body.extend(chunk)
+
+            if not message.get("more_body", False):
+                break
 
         async def receive() -> dict[str, object]:
-            return {"type": "http.request", "body": body, "more_body": False}
+            if buffered_messages:
+                return buffered_messages.pop(0)
+            return await original_receive()
 
         request._receive = receive  # type: ignore[attr-defined]
-        return body
+        return bytes(collected_body)
 
     def _decode_body(self, body: bytes) -> str:
         if not body:

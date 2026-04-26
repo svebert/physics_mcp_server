@@ -147,6 +147,13 @@ def _extract_text(response: Any) -> str:
 async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
+    async def _invoke_tool(tool_impl: Any, tool_args: dict[str, Any]) -> Any:
+        if hasattr(tool_impl, "ainvoke"):
+            return await tool_impl.ainvoke(tool_args)
+        if hasattr(tool_impl, "invoke"):
+            return tool_impl.invoke(tool_args)
+        raise TypeError(f"Tool {getattr(tool_impl, 'name', '<unknown>')} is not invokable.")
+
     model = _build_chat_model()
     mcp_client, mcp_tools = await _build_physics_mcp_tools()
     local_tools = _build_tools(enable_web_search=enable_web_search)
@@ -157,7 +164,7 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
     request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
     current_model = model.bind_tools(tools)
     try:
-        response = current_model.invoke(request_messages)
+        response = await current_model.ainvoke(request_messages)
 
         while getattr(response, "tool_calls", None):
             history.append(response)
@@ -172,7 +179,7 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
                     }
                 else:
                     try:
-                        tool_result = tool_impl.invoke(tool_args)
+                        tool_result = await _invoke_tool(tool_impl, tool_args)
                     except Exception as exc:
                         tool_result = {
                             "ok": False,
@@ -186,7 +193,7 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
                 history.append(ToolMessage(content=json.dumps(tool_result, ensure_ascii=False), tool_call_id=call["id"]))
 
             request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
-            response = current_model.invoke(request_messages)
+            response = await current_model.ainvoke(request_messages)
     finally:
         close_fn = getattr(mcp_client, "aclose", None)
         if callable(close_fn):

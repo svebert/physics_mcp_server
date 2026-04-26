@@ -67,8 +67,26 @@ def test_build_mcp_tools_wraps_session_errors(monkeypatch: pytest.MonkeyPatch) -
     module = types.ModuleType("langchain_mcp_adapters.client")
     module.MultiServerMCPClient = DummyClient
     monkeypatch.setitem(sys.modules, "langchain_mcp_adapters.client", module)
+    monkeypatch.setattr(
+        langchain_chat.importlib.metadata,
+        "version",
+        lambda name: "0.3.84" if name == "langchain-core" else "0.2.1",
+    )
 
     with pytest.raises(RuntimeError, match="Failed to initialize MCP tools"):
         import asyncio
 
         asyncio.run(langchain_chat._build_mcp_tools(["postdoc"]))
+
+
+def test_validate_langchain_mcp_versions_rejects_old_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        langchain_chat.importlib.metadata,
+        "version",
+        lambda name: "0.3.84" if name == "langchain-core" else "0.1.14",
+    )
+
+    with pytest.raises(RuntimeError, match="too old"):
+        langchain_chat._validate_langchain_mcp_versions()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -191,22 +192,60 @@ def _build_web_search_tool() -> Any:
     return websearch
 
 
+def _parse_semver(version: str) -> tuple[int, int, int]:
+    normalized = version.split("+", 1)[0].split("-", 1)[0]
+    parts = normalized.split(".")
+    major = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 0
+    minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    patch = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    return major, minor, patch
+
+
+def _validate_langchain_mcp_versions() -> None:
+    try:
+        core_version = importlib.metadata.version("langchain-core")
+    except importlib.metadata.PackageNotFoundError:
+        core_version = "not-installed"
+    try:
+        adapter_version = importlib.metadata.version("langchain-mcp-adapters")
+    except importlib.metadata.PackageNotFoundError:
+        adapter_version = "not-installed"
+
+    if adapter_version == "not-installed":
+        raise RuntimeError(
+            "Missing MCP adapter dependency (`langchain-mcp-adapters`). "
+            "Install project dependencies with `pip install -e '.[dev]'`."
+        )
+
+    if _parse_semver(adapter_version) < (0, 2, 0):
+        raise RuntimeError(
+            "Installed `langchain-mcp-adapters` is too old for this client "
+            f"(found {adapter_version}, required >=0.2,<0.3). "
+            "Upgrade with: "
+            "`pip install -U \"langchain-mcp-adapters>=0.2,<0.3\" "
+            "\"langchain-core>=0.3.78,<0.4\"`."
+        )
+
+    if core_version == "not-installed" or _parse_semver(core_version) < (0, 3, 78):
+        raise RuntimeError(
+            "Installed `langchain-core` is incompatible with MCP adapters "
+            f"(found {core_version}, required >=0.3.78,<0.4). "
+            "Upgrade with: "
+            "`pip install -U \"langchain-core>=0.3.78,<0.4\" "
+            "\"langchain-mcp-adapters>=0.2,<0.3\"`."
+        )
+
+
 async def _build_mcp_tools(selected_servers: list[str]) -> tuple[Any, list[Any]]:
+    _validate_langchain_mcp_versions()
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
     except ImportError as exc:
-        detail = str(exc)
-        if "langchain_core.messages.content" in detail:
-            raise RuntimeError(
-                "Incompatible LangChain packages detected: `langchain-mcp-adapters` "
-                "expects a newer `langchain-core` than the one installed. \
-Install matching versions (for this project: `langchain-mcp-adapters>=0.2,<0.3`) with \
-`pip install -e '.[dev]'` or pin `langchain-mcp-adapters>=0.2,<0.3`."
-            ) from exc
-
         raise RuntimeError(
-            "Missing MCP adapter dependency. Install `langchain-mcp-adapters`, "
-            "for example with `pip install -e '.[dev]'`."
+            "Failed to import MCP adapter client even though dependencies look installed. "
+            "Reinstall matching versions with "
+            "`pip install -U \"langchain-core>=0.3.78,<0.4\" "
+            "\"langchain-mcp-adapters>=0.2,<0.3\"`."
         ) from exc
 
     server_map: dict[str, dict[str, str]] = {}

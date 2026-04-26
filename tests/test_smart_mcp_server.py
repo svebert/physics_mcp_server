@@ -82,3 +82,10 @@ def test_run_postdoc_agent_uses_async_tool_invocation(monkeypatch) -> None:
 
     answer = asyncio.run(smart_module.run_postdoc_agent("Testfrage", enable_web_search=False))
     assert answer == "Fertig"
+
+
+def test_local_web_search_tool_has_description() -> None:
+    tools = smart_module._build_tools(enable_web_search=True)
+    web_tools = [tool for tool in tools if getattr(tool, "name", "") == "web_search"]
+    assert web_tools
+    assert getattr(web_tools[0], "description", "")

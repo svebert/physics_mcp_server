@@ -90,6 +90,7 @@ def _build_tools(enable_web_search: bool) -> list[Any]:
 
         @tool
         def web_search(query: str) -> dict[str, Any]:
+            """Search the public web and return short evidence snippets for grounding answers."""
             try:
                 with httpx.Client(timeout=15) as client:
                     response = client.get(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -144,11 +143,11 @@ def _extract_text(response: Any) -> str:
     return str(content)
 
 
-def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
+async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     model = _build_chat_model()
-    mcp_client, mcp_tools = asyncio.run(_build_physics_mcp_tools())
+    mcp_client, mcp_tools = await _build_physics_mcp_tools()
     local_tools = _build_tools(enable_web_search=enable_web_search)
     tools = [*mcp_tools, *local_tools]
     tool_lookup = {tool.name: tool for tool in tools}
@@ -190,15 +189,15 @@ def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
     finally:
         close_fn = getattr(mcp_client, "aclose", None)
         if callable(close_fn):
-            asyncio.run(close_fn())
+            await close_fn()
 
     return _extract_text(response)
 
 
 @smart_mcp.tool()
-def ask_postdoc_tool(question: str) -> dict[str, str]:
+async def ask_postdoc_tool(question: str) -> dict[str, str]:
     """Answer natural-language STEM questions using mcp-physics and optional web research."""
-    return {"answer": run_postdoc_agent(question, enable_web_search=True)}
+    return {"answer": await run_postdoc_agent(question, enable_web_search=True)}
 
 
 app = FastAPI(title="physics-postdoc-mcp", version="0.1.0")
@@ -210,9 +209,12 @@ def health() -> dict[str, str]:
 
 
 @app.post("/v1/ask", response_model=AskResponse)
-def ask(request: AskRequest) -> AskResponse:
+async def ask(request: AskRequest) -> AskResponse:
     try:
-        answer = run_postdoc_agent(request.question, enable_web_search=request.enable_web_search)
+        answer = await run_postdoc_agent(
+            request.question,
+            enable_web_search=request.enable_web_search,
+        )
     except Exception as exc:
         logger.exception("postdoc agent failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -15,7 +15,7 @@ def test_health_smoke() -> None:
 
 
 def test_ask_endpoint_uses_agent(monkeypatch) -> None:
-    def _fake_agent(question: str, enable_web_search: bool = True) -> str:
+    async def _fake_agent(question: str, enable_web_search: bool = True) -> str:
         assert "Träger" in question
         assert enable_web_search is False
         return "Berechnete Antwort"

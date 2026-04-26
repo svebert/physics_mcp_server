@@ -104,13 +104,16 @@ pip install -e '.[dev,anthropic]'
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 - `PHYSICS_MCP_LOG_DIR`: Verzeichnis für Log-Dateien (default: `logs`).
+- `PHYSICS_MCP_LOG_LEVEL`: Log-Level für beide Server (`error`, `info`, `debug`; default: `info`). Bei `debug` werden Request-/Response-Payloads mitgeloggt.
+- `SMART_PHYSICS_MCP_LOG_LEVEL`: optionales Override nur für `physics-postdoc-mcp` (gleiche Werte wie oben).
+- `PHYSICS_MCP_CLIENT_LOG_LEVEL`: optionales Override für den CLI-Client (fällt sonst auf `PHYSICS_MCP_LOG_LEVEL` zurück).
 - `.env` loading strategy:
   - shared defaults from `<repo>/.env`
   - optional overrides from `<repo>/mcp_server/.env` and `<repo>/smart_mcp_server/.env`
   - explicitly exported process env vars keep highest priority
-  - `logs/physics-mcp.log`
-  - `logs/physics-postdoc-mcp.log`
-  - `logs/physics-mcp-client.log`
+  - tägliche Log-Dateien, z. B. `logs/physics-mcp-2026-04-26.log`
+  - `logs/physics-postdoc-mcp-2026-04-26.log`
+  - `logs/physics-mcp-client-2026-04-26.log`
 
 ## API key setup (provider-agnostic)
 

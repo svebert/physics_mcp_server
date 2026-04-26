@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import importlib.metadata
 import json
 import logging
@@ -27,11 +28,13 @@ def _load_env() -> None:
 _load_env()
 LOG_DIR = Path(os.getenv("PHYSICS_MCP_LOG_DIR", "logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-CLIENT_LOG_FILE = LOG_DIR / "physics-mcp-client.log"
+CURRENT_DAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+CLIENT_LOG_FILE = LOG_DIR / f"physics-mcp-client-{CURRENT_DAY}.log"
 
 logger = logging.getLogger("physics-mcp-client")
 if not logger.handlers:
-    logger.setLevel(logging.INFO)
+    client_log_level = os.getenv("PHYSICS_MCP_CLIENT_LOG_LEVEL", os.getenv("PHYSICS_MCP_LOG_LEVEL", "info")).strip().upper()
+    logger.setLevel(getattr(logging, client_log_level, logging.INFO))
     file_handler = logging.FileHandler(CLIENT_LOG_FILE, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(file_handler)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import asynccontextmanager
 import os
 from typing import Any
 
@@ -200,7 +201,16 @@ async def ask_postdoc_tool(question: str) -> dict[str, str]:
     return {"answer": await run_postdoc_agent(question, enable_web_search=True)}
 
 
-app = FastAPI(title="physics-postdoc-mcp", version="0.1.0")
+mcp_http_app = smart_mcp.streamable_http_app()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async with smart_mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="physics-postdoc-mcp", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -221,7 +231,7 @@ async def ask(request: AskRequest) -> AskResponse:
     return AskResponse(answer=answer)
 
 
-app.mount("/", smart_mcp.streamable_http_app())
+app.mount("/", mcp_http_app)
 
 
 def run() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 import os
 import unicodedata
 from typing import Any
@@ -163,7 +164,16 @@ def get_model_assumptions_tool() -> list[str]:
 
 LOG_CONFIG = configure_logging(service_name="physics-mcp", app_logger_name="physics-mcp")
 
-app = FastAPI(title="physics-mcp", version="0.1.0")
+mcp_http_app = mcp.streamable_http_app()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="physics-mcp", version="0.1.0", lifespan=lifespan)
 rate_limit_hook = RateLimitHook()
 app.middleware("http")(rate_limit_hook)
 
@@ -221,7 +231,7 @@ def dev_tool(tool_name: str, request: Request, payload: dict[str, Any] | None = 
     raise HTTPException(status_code=404, detail=f"Unknown tool {tool_name}")
 
 
-app.mount("/", mcp.streamable_http_app())
+app.mount("/", mcp_http_app)
 
 
 def run() -> None:

@@ -36,10 +36,11 @@ dev = [
 
 [project.scripts]
 physics-mcp-server = "mcp_server.app:run"
+physics-smart-mcp-server = "smart_mcp_server.app:run"
 physics-mcp-client = "client.langchain_chat:main"
 
 [tool.setuptools]
-packages = ["physics_core", "mcp_server", "client"]
+packages = ["physics_core", "mcp_server", "smart_mcp_server", "client"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

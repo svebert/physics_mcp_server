@@ -26,10 +26,52 @@ DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 
+PHYSICS_POSTDOC_CONTEXT = """
+Du bist ein Physik- und Ingenieurwesen-Postdoc und bearbeitest MINT-Anfragen in jeder Sprache.
+Arbeite strikt so:
+1) Prüfe zuerst, ob alle nötigen Informationen für eine belastbare Lösung vorhanden sind.
+2) Falls Informationen fehlen, frage kurz nach oder recherchiere zunächst selbst über verfügbare Tools.
+3) Prüfe Einheiten systematisch und vereinheitliche intern auf SI, bevor du rechnest.
+4) Gib Ergebnisse mit Einheit, Plausibilitätsprüfung und klaren Annahmen aus.
+""".strip()
+
+PHYSICS_MCP_TOOL_INSTRUCTION = """
+Nutzung der mcp-physics Tools:
+- Verwende `get_supported_cases` bevor du unsicher über Lastfall-Namen bist.
+- Verwende `get_model_assumptions`, wenn Grenzen/Annahmen relevant sind.
+- Verwende `solve_beam_case` nur mit diesen SI-Feldern:
+  case, length_m, youngs_modulus_pa, second_moment_m4, optional point_load_n,
+  point_load_position_m, udl_n_per_m, samples.
+- Wenn Nutzer in anderer Sprache schreibt: mappe Begriffe robust auf die Tool-Felder.
+- Wenn Nutzer in nicht-SI schreibt (z.B. kN, GPa, mm^4), konvertiere vor Tool-Call nach SI
+  und erwähne Konvertierung in der Antwort.
+- Nutze nur physikalisch konsistente Einheiten; bei Widersprüchen zuerst klären.
+""".strip()
+
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
-    "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False},
-    "1": {"label": "Nur physics-mcp", "tools": ["physics-mcp"], "needs_mcp": True},
+    "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False, "system_prompt": None},
+    "1": {
+        "label": "Nur physics-mcp",
+        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions"],
+        "needs_mcp": True,
+        "system_prompt": None,
+    },
+    "2": {
+        "label": "physics post doc",
+        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions"],
+        "needs_mcp": True,
+        "system_prompt": f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}",
+    },
+    "3": {
+        "label": "websearch+physik post doc",
+        "tools": ["solve_beam_case", "get_supported_cases", "get_model_assumptions", "web_search"],
+        "needs_mcp": True,
+        "system_prompt": (
+            f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}\n\n"
+            "Nutze zusätzlich Web-Recherche, wenn Wissen nicht sicher oder aktuell ist."
+        ),
+    },
 }
 
 
@@ -176,6 +218,31 @@ def _build_mcp_tools() -> list[Any]:
     return [solve_beam_case, get_supported_cases, get_model_assumptions]
 
 
+def _build_web_search_tool() -> Any:
+    from langchain_core.tools import tool
+
+    @tool
+    def web_search(query: str) -> dict[str, Any]:
+        """Run a lightweight public web search and return short evidence snippets."""
+        with httpx.Client(timeout=15) as client:
+            response = client.get(
+                "https://api.duckduckgo.com/",
+                params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+            )
+            response.raise_for_status()
+            body = response.json()
+
+        snippets: list[str] = []
+        if body.get("AbstractText"):
+            snippets.append(str(body["AbstractText"]))
+        for item in body.get("RelatedTopics", [])[:5]:
+            if isinstance(item, dict) and item.get("Text"):
+                snippets.append(str(item["Text"]))
+        return {"ok": True, "query": query, "snippets": snippets[:5]}
+
+    return web_search
+
+
 def _read_question() -> str:
     key_bindings = KeyBindings()
 
@@ -204,7 +271,7 @@ def _select_toolset_interactive() -> str:
     for key, option in TOOLSET_OPTIONS.items():
         print(f"  {key}: {option['label']}")
 
-    selection = prompt("Auswahl [0-1, Default 1]: ").strip() or "1"
+    selection = prompt("Auswahl [0-3, Default 1]: ").strip() or "1"
     if selection not in TOOLSET_OPTIONS:
         print(f"Ungültige Auswahl '{selection}', nehme Default 1 (Nur physics-mcp).")
         return "1"
@@ -227,11 +294,13 @@ def _extract_text(response: Any) -> str:
 
 
 def main() -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
+    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     model = _build_chat_model()
     mcp_tools = _build_mcp_tools()
-    tool_lookup = {tool.name: tool for tool in mcp_tools}
+    web_tool = _build_web_search_tool()
+    all_tools = mcp_tools + [web_tool]
+    tool_lookup = {tool.name: tool for tool in all_tools}
 
     toolset_key = _select_toolset_interactive()
     toolset = TOOLSET_OPTIONS[toolset_key]
@@ -261,12 +330,13 @@ def main() -> None:
 
         history.append(HumanMessage(content=question))
 
-        if toolset["tools"]:
-            current_model = model.bind_tools(mcp_tools)
-        else:
-            current_model = model
+        selected_tools = [tool_lookup[name] for name in toolset["tools"] if name in tool_lookup]
+        current_model = model.bind_tools(selected_tools) if selected_tools else model
+        request_messages = list(history)
+        if toolset.get("system_prompt"):
+            request_messages = [SystemMessage(content=toolset["system_prompt"]), *request_messages]
 
-        response = current_model.invoke(history)
+        response = current_model.invoke(request_messages)
 
         while getattr(response, "tool_calls", None):
             history.append(response)
@@ -292,7 +362,10 @@ def main() -> None:
                         tool_call_id=call["id"],
                     )
                 )
-            response = current_model.invoke(history)
+            request_messages = list(history)
+            if toolset.get("system_prompt"):
+                request_messages = [SystemMessage(content=toolset["system_prompt"]), *request_messages]
+            response = current_model.invoke(request_messages)
 
         history.append(response)
         print("\nAntwort:\n")

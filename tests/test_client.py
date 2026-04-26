@@ -49,3 +49,10 @@ def test_resolve_api_key_keeps_openai_backward_compatibility(
     monkeypatch.setenv("OPENAI_API_KEY", "legacy-openai-key")
 
     assert langchain_chat._resolve_api_key("openai") == "legacy-openai-key"
+
+
+def test_toolset_options_include_new_postdoc_modes() -> None:
+    assert "2" in langchain_chat.TOOLSET_OPTIONS
+    assert "3" in langchain_chat.TOOLSET_OPTIONS
+    assert langchain_chat.TOOLSET_OPTIONS["2"]["label"] == "physics post doc"
+    assert "web_search" in langchain_chat.TOOLSET_OPTIONS["3"]["tools"]

@@ -222,6 +222,15 @@ async def _build_mcp_tools() -> tuple[Any, list[Any]]:
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
     except ImportError as exc:
+        detail = str(exc)
+        if "langchain_core.messages.content" in detail:
+            raise RuntimeError(
+                "Incompatible LangChain packages detected: `langchain-mcp-adapters` "
+                "expects a newer `langchain-core` than the one installed. \
+Install matching versions (for this project: `langchain-mcp-adapters<0.2`) with \
+`pip install -e '.[dev]'` or pin `langchain-mcp-adapters<0.2`."
+            ) from exc
+
         raise RuntimeError(
             "Missing MCP adapter dependency. Install `langchain-mcp-adapters`, "
             "for example with `pip install -e '.[dev]'`."

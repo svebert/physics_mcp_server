@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import httpx
 import pytest
 
@@ -50,38 +53,22 @@ def test_toolset_options_match_expected_modes() -> None:
     assert "websearch" in langchain_chat.TOOLSET_OPTIONS["5"]["tools"]
 
 
-def test_search_google_news_rss_parses_items(monkeypatch: pytest.MonkeyPatch) -> None:
-    rss = """
-    <rss><channel>
-      <item>
-        <title>Hamburg News</title>
-        <link>https://example.org/news1</link>
-        <description>Kurzmeldung</description>
-        <pubDate>Sun, 26 Apr 2026 10:00:00 GMT</pubDate>
-      </item>
-    </channel></rss>
-    """
+def test_build_mcp_tools_wraps_session_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyClient:
+        def __init__(self, _server_map: dict[str, dict[str, str]]) -> None:
+            self.closed = False
 
-    def _fake_get(*args: object, **kwargs: object) -> httpx.Response:
-        request = httpx.Request("GET", "https://news.google.com/rss/search")
-        return httpx.Response(status_code=200, text=rss, request=request)
+        async def get_tools(self) -> list[object]:
+            raise RuntimeError("Session terminated")
 
-    monkeypatch.setattr(httpx.Client, "get", _fake_get)
+        async def aclose(self) -> None:
+            self.closed = True
 
-    results = langchain_chat._search_google_news_rss("Hamburg", max_results=5)
+    module = types.ModuleType("langchain_mcp_adapters.client")
+    module.MultiServerMCPClient = DummyClient
+    monkeypatch.setitem(sys.modules, "langchain_mcp_adapters.client", module)
 
-    assert len(results) == 1
-    assert results[0]["title"] == "Hamburg News"
-    assert results[0]["url"] == "https://example.org/news1"
+    with pytest.raises(RuntimeError, match="Failed to initialize MCP tools"):
+        import asyncio
 
-
-def test_web_search_prefers_google_news_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fake_news(query: str, max_results: int) -> list[dict[str, str]]:
-        return [{"title": "N", "url": "https://example.org", "snippet": "S"}]
-
-    monkeypatch.setattr(langchain_chat, "_search_google_news_rss", _fake_news)
-
-    payload = langchain_chat._web_search("News Hamburg", max_results=3)
-
-    assert payload["ok"] is True
-    assert payload["results"][0]["title"] == "N"
+        asyncio.run(langchain_chat._build_mcp_tools(["postdoc"]))

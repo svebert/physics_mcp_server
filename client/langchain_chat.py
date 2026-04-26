@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree
 
 import httpx
 from dotenv import load_dotenv
@@ -135,10 +134,6 @@ def _build_chat_model() -> Any:
 
 def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     max_results = max(1, min(max_results, 10))
-    news_results = _search_google_news_rss(query=query, max_results=max_results)
-    if news_results:
-        return {"ok": True, "query": query, "results": news_results}
-
     try:
         with httpx.Client(timeout=20) as client:
             response = client.get(
@@ -185,42 +180,6 @@ def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
                     )
 
     return {"ok": True, "query": query, "results": results[:max_results]}
-
-
-def _search_google_news_rss(query: str, max_results: int) -> list[dict[str, str]]:
-    params = {
-        "q": query,
-        "hl": "de",
-        "gl": "DE",
-        "ceid": "DE:de",
-    }
-    try:
-        with httpx.Client(timeout=20) as client:
-            response = client.get("https://news.google.com/rss/search", params=params)
-            response.raise_for_status()
-    except httpx.HTTPError:
-        return []
-
-    try:
-        root = ElementTree.fromstring(response.text)
-    except ElementTree.ParseError:
-        return []
-
-    parsed: list[dict[str, str]] = []
-    for item in root.findall("./channel/item"):
-        title = (item.findtext("title") or "").strip()
-        link = (item.findtext("link") or "").strip()
-        description = (item.findtext("description") or "").strip()
-        pub_date = (item.findtext("pubDate") or "").strip()
-        snippet = " ".join(part for part in (pub_date, description) if part)
-        if title and link:
-            parsed.append({"title": title, "url": link, "snippet": snippet})
-        if len(parsed) >= max_results:
-            break
-
-    return parsed
-
-
 def _build_web_search_tool() -> Any:
     from langchain_core.tools import tool
 

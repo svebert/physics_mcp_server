@@ -41,6 +41,7 @@ DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_PHYSICS_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 DEFAULT_POSTDOC_SERVER = os.getenv("SMART_MCP_URL", "http://127.0.0.1:8090")
+MAX_TOOL_ROUNDS = int(os.getenv("PHYSICS_CLIENT_MAX_TOOL_ROUNDS", "12"))
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
     "0": {"label": "none", "tools": [], "mcp_servers": [], "system_prompt": None},
@@ -430,7 +431,33 @@ def main() -> None:
 
         response = current_model.invoke(request_messages)
 
+        tool_round = 0
+        previous_round_signatures: tuple[str, ...] = ()
+        repeated_rounds = 0
         while getattr(response, "tool_calls", None):
+            tool_round += 1
+            if tool_round > MAX_TOOL_ROUNDS:
+                print(
+                    "\nAbbruch: Zu viele aufeinanderfolgende Tool-Aufrufe erkannt "
+                    f"(Limit {MAX_TOOL_ROUNDS})."
+                )
+                logger.warning("Stopped response loop after max tool rounds (%d).", MAX_TOOL_ROUNDS)
+                break
+
+            current_round_signatures = tuple(
+                json.dumps({"name": call["name"], "args": call.get("args", {})}, ensure_ascii=False, sort_keys=True)
+                for call in response.tool_calls
+            )
+            if current_round_signatures == previous_round_signatures:
+                repeated_rounds += 1
+            else:
+                repeated_rounds = 0
+            previous_round_signatures = current_round_signatures
+            if repeated_rounds >= 2:
+                print("\nAbbruch: Wiederholte identische Tool-Aufrufe erkannt (Loop-Schutz).")
+                logger.warning("Stopped response loop due to repeated tool-call rounds.")
+                break
+
             history.append(response)
             for call in response.tool_calls:
                 tool_name = call["name"]

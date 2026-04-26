@@ -8,6 +8,7 @@ import logging
 import os
 from pathlib import Path
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -351,6 +352,22 @@ def _extract_text(response: Any) -> str:
     return str(content)
 
 
+
+
+def _summarize_messages(messages: list[Any], max_chars: int = MAX_LOG_PAYLOAD_CHARS) -> str:
+    summary: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.__class__.__name__
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            content = json.dumps(content, ensure_ascii=False)
+        text = str(content)
+        summary.append({"role": role, "content": text[:300]})
+    payload = json.dumps(summary, ensure_ascii=False)
+    if len(payload) <= max_chars:
+        return payload
+    return f"{payload[:max_chars]}...<truncated {len(payload)-max_chars} chars>"
+
 def main() -> None:
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -423,18 +440,22 @@ def main() -> None:
             print(f"\nAktives Tool-Set: {toolset['label']}")
             continue
 
+        trace_id = uuid.uuid4().hex[:12]
         history.append(HumanMessage(content=question))
-        logger.info("User question received (len=%d) using toolset='%s'", len(question), toolset["label"])
+        logger.info("client-trace start trace_id=%s toolset=%s question=%s", trace_id, toolset["label"], question[:MAX_LOG_PAYLOAD_CHARS])
 
         tool_pool = [*mcp_tools, web_tool]
         tool_lookup = {tool.name: tool for tool in tool_pool}
         selected_tools = [tool_lookup[name] for name in toolset["tools"] if name in tool_lookup]
         current_model = model.bind_tools(selected_tools) if selected_tools else model
+        logger.debug("client-trace selected-tools trace_id=%s tools=%s", trace_id, [tool.name for tool in selected_tools])
         request_messages = list(history)
         if toolset.get("system_prompt"):
             request_messages = [SystemMessage(content=toolset["system_prompt"]), *request_messages]
 
+        logger.debug("client-trace model-request trace_id=%s messages=%s", trace_id, _summarize_messages(request_messages))
         response = current_model.invoke(request_messages)
+        logger.debug("client-trace model-response trace_id=%s content=%s tool_calls=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS], json.dumps(getattr(response, "tool_calls", []), ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
 
         tool_round = 0
         previous_round_signatures: tuple[str, ...] = ()
@@ -486,6 +507,7 @@ def main() -> None:
             for call in response.tool_calls:
                 tool_name = call["name"]
                 tool_args = call.get("args", {})
+                logger.debug("client-trace tool-request trace_id=%s round=%d tool=%s args=%s", trace_id, tool_round, tool_name, json.dumps(tool_args, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
                 tool_impl = tool_lookup.get(tool_name)
                 if tool_impl is None:
                     tool_result: dict[str, Any] = {
@@ -500,10 +522,12 @@ def main() -> None:
                 else:
                     try:
                         started = time.perf_counter()
-                        logger.info("Invoking tool '%s' with args=%s", tool_name, tool_args)
+                        logger.info("Invoking tool '%s' trace_id=%s with args=%s", tool_name, trace_id, tool_args)
                         tool_result = _invoke_tool(tool_impl, tool_args)
                         logger.debug(
-                            "Tool '%s' result after %.2fms: %s",
+                            "client-trace tool-response trace_id=%s round=%d tool=%s elapsed_ms=%.2f result=%s",
+                            trace_id,
+                            tool_round,
                             tool_name,
                             (time.perf_counter() - started) * 1_000,
                             json.dumps(tool_result, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
@@ -528,9 +552,12 @@ def main() -> None:
             request_messages = list(history)
             if toolset.get("system_prompt"):
                 request_messages = [SystemMessage(content=toolset["system_prompt"]), *request_messages]
+            logger.debug("client-trace model-request trace_id=%s messages=%s", trace_id, _summarize_messages(request_messages))
             response = current_model.invoke(request_messages)
+            logger.debug("client-trace model-response trace_id=%s content=%s tool_calls=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS], json.dumps(getattr(response, "tool_calls", []), ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
 
         history.append(response)
+        logger.info("client-trace finish trace_id=%s answer=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS])
         print("\nAntwort:\n")
         print(_extract_text(response))
 

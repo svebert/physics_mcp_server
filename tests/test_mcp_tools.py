@@ -47,6 +47,23 @@ def test_solve_tool_accepts_flat_keyword_arguments() -> None:
     assert result["reactions_n"]["left"] == 6000.0
     assert result["reactions_n"]["right"] == 6000.0
 
+
+
+def test_solve_tool_accepts_kwargs_wrapper_argument() -> None:
+    result = solve_beam_case_tool(
+        kwargs={
+            "case": "simply_supported_point",
+            "length_m": 6.0,
+            "youngs_modulus_pa": 210e9,
+            "second_moment_m4": 8.5e-6,
+            "point_load_n": 12_000.0,
+            "point_load_position_m": 3.0,
+        }
+    )
+    assert result["case"] == "simply_supported_point"
+    assert result["reactions_n"]["left"] == 6000.0
+
+
 def test_dev_tool_returns_422_on_invalid_payload() -> None:
     client = TestClient(app)
     response = client.post("/dev/tools/solve_beam_case", json={"case": "simply_supported_point"})
@@ -113,6 +130,48 @@ def test_dev_tool_422_contains_debuggable_error_detail() -> None:
     assert "received_keys" in detail
     assert "normalized_keys" in detail
 
+
+
+def test_dev_tool_accepts_nested_kwargs_payload() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/dev/tools/solve_beam_case",
+        json={
+            "kwargs": {
+                "case": "simply_supported_point",
+                "length_m": 6.0,
+                "youngs_modulus_pa": 210e9,
+                "second_moment_m4": 8.5e-6,
+                "point_load_n": 12_000.0,
+                "point_load_position_m": 3.0,
+            }
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"] == "simply_supported_point"
+    assert body["reactions_n"]["left"] == 6000.0
+
+
+def test_dev_tool_accepts_nested_payload_payload() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/dev/tools/solve_beam_case",
+        json={
+            "payload": {
+                "case": "simply_supported_point",
+                "length_m": 6.0,
+                "youngs_modulus_pa": 210e9,
+                "second_moment_m4": 8.5e-6,
+                "point_load_n": 12_000.0,
+                "point_load_position_m": 3.0,
+            }
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"] == "simply_supported_point"
+    assert body["reactions_n"]["right"] == 6000.0
 
 def test_mcp_endpoint_is_not_redirected() -> None:
     mount_routes = [route for route in app.routes if getattr(route, "path", None) == ""]

@@ -30,6 +30,12 @@ DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
     "0": {"label": "Kein Tool", "tools": [], "needs_mcp": False},
     "1": {"label": "Nur physics-mcp", "tools": ["physics-mcp"], "needs_mcp": True},
+    "2": {"label": "Nur Websearch", "tools": ["websearch"], "needs_mcp": False},
+    "3": {
+        "label": "Websearch + physics-mcp",
+        "tools": ["websearch", "physics-mcp"],
+        "needs_mcp": True,
+    },
 }
 
 
@@ -114,7 +120,7 @@ def _build_chat_model() -> Any:
     except ImportError as exc:
         raise RuntimeError(
             "LangChain is required for the client. Install project dependencies, e.g. "
-            "`pip install -e '.[dev,client-openai]'`."
+            "`pip install -e '.[dev]'`."
         ) from exc
 
     try:
@@ -133,8 +139,63 @@ def _build_chat_model() -> Any:
         ) from exc
 
 
+
+def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
+    max_results = max(1, min(max_results, 10))
+    try:
+        with httpx.Client(timeout=20) as client:
+            response = client.get(
+                "https://api.duckduckgo.com/",
+                params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "error": {"details": f"Websearch failed: {exc}"}}
+
+    results: list[dict[str, str]] = []
+
+    abstract = str(payload.get("AbstractText") or "").strip()
+    abstract_url = str(payload.get("AbstractURL") or "").strip()
+    heading = str(payload.get("Heading") or "").strip()
+    if abstract:
+        results.append(
+            {
+                "title": heading or "DuckDuckGo Abstract",
+                "url": abstract_url,
+                "snippet": abstract,
+            }
+        )
+
+    for item in payload.get("RelatedTopics", []) or []:
+        if isinstance(item, dict) and "Text" in item:
+            results.append(
+                {
+                    "title": str(item.get("FirstURL") or "Related result"),
+                    "url": str(item.get("FirstURL") or ""),
+                    "snippet": str(item.get("Text") or ""),
+                }
+            )
+        if isinstance(item, dict) and isinstance(item.get("Topics"), list):
+            for nested in item["Topics"]:
+                if isinstance(nested, dict) and "Text" in nested:
+                    results.append(
+                        {
+                            "title": str(nested.get("FirstURL") or "Related result"),
+                            "url": str(nested.get("FirstURL") or ""),
+                            "snippet": str(nested.get("Text") or ""),
+                        }
+                    )
+
+    return {"ok": True, "query": query, "results": results[:max_results]}
+
 def _build_mcp_tools() -> list[Any]:
     from langchain_core.tools import tool
+
+    @tool
+    def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
+        """Search the web for current context and return short snippets with URLs."""
+        return _web_search(query=query, max_results=max_results)
 
     @tool
     def solve_beam_case(
@@ -173,7 +234,7 @@ def _build_mcp_tools() -> list[Any]:
         """Get assumptions and limits of the beam model."""
         return invoke_server_tool("get_model_assumptions", {})
 
-    return [solve_beam_case, get_supported_cases, get_model_assumptions]
+    return [web_search, solve_beam_case, get_supported_cases, get_model_assumptions]
 
 
 def _read_question() -> str:
@@ -204,7 +265,8 @@ def _select_toolset_interactive() -> str:
     for key, option in TOOLSET_OPTIONS.items():
         print(f"  {key}: {option['label']}")
 
-    selection = prompt("Auswahl [0-1, Default 1]: ").strip() or "1"
+    choices = "-".join([min(TOOLSET_OPTIONS.keys()), max(TOOLSET_OPTIONS.keys())])
+    selection = prompt(f"Auswahl [{choices}, Default 1]: ").strip() or "1"
     if selection not in TOOLSET_OPTIONS:
         print(f"Ungültige Auswahl '{selection}', nehme Default 1 (Nur physics-mcp).")
         return "1"

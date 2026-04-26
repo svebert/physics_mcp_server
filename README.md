@@ -61,15 +61,26 @@ physics-mcp/
 python3.11 -m venv .venv
 source .venv/bin/activate
 # default client setup (OpenAI provider)
-pip install -e '.[dev,client-openai]'
+pip install -e '.[dev]'
 cp .env.example .env
 # put LLM_API_KEY (recommended) or OPENAI_API_KEY (backward-compatible) into .env
 ```
 
-For Claude/Anthropic support install:
+
+## Optionale Dependency-Gruppen
+
+Default (OpenAI) funktioniert ohne zusätzliche Client-Gruppe:
 
 ```bash
-pip install -e '.[dev,client-anthropic]'
+pip install -e '.[dev]'
+```
+
+Optionale Gruppen:
+
+- `anthropic`: Fügt `langchain-anthropic` für Claude/Anthropic als Provider hinzu.
+
+```bash
+pip install -e '.[dev,anthropic]'
 ```
 
 ## Environment variables
@@ -117,12 +128,6 @@ export ANTHROPIC_API_KEY='...'
 pytest
 ```
 
-
-If `physics-mcp-client` is not found, reinstall in your active venv:
-
-```bash
-python3 -m pip install -e '.[dev,client-openai]'
-```
 
 ## Run the MCP server locally
 
@@ -194,6 +199,8 @@ Input UX in the client:
 The client uses **LangChain chat models** and supports these Tool-Sets:
 - `0`: kein Tool
 - `1`: nur `physics-mcp`
+- `2`: nur `websearch`
+- `3`: `websearch` + `physics-mcp`
 
 If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/health` and prints a clear startup error if the server is offline.
 
@@ -216,7 +223,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-This creates a small single-service deployment suitable for home-server use. Put a reverse proxy (Caddy/Nginx/Traefik) in front later for TLS and public exposure.
+This creates a small single-service deployment suitable for home-server use. Uvicorn runs in production mode (no debug reload). Put a reverse proxy (Caddy/Nginx/Traefik) in front later for TLS and public exposure.
 
 ## Public exposure later (recommended)
 

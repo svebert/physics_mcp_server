@@ -180,8 +180,6 @@ def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
                     )
 
     return {"ok": True, "query": query, "results": results[:max_results]}
-
-
 def _build_web_search_tool() -> Any:
     from langchain_core.tools import tool
 
@@ -223,7 +221,16 @@ Install matching versions (for this project: `langchain-mcp-adapters>=0.2,<0.3`)
             "transport": "streamable_http",
         }
     client = MultiServerMCPClient(server_map)
-    tools = await client.get_tools()
+    try:
+        tools = await client.get_tools()
+    except Exception as exc:
+        close_fn = getattr(client, "aclose", None)
+        if callable(close_fn):
+            await close_fn()
+        raise RuntimeError(
+            "Failed to initialize MCP tools. Ensure the selected MCP server is running and "
+            f"supports streamable HTTP. selected_servers={selected_servers!r}, error={exc}"
+        ) from exc
     return client, tools
 
 
@@ -295,8 +302,14 @@ def main() -> None:
             _ensure_server_is_reachable(DEFAULT_PHYSICS_SERVER, "mcp-physics")
         if "postdoc" in required_servers:
             _ensure_server_is_reachable(DEFAULT_POSTDOC_SERVER, "physik-postdoc")
-        mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
-        loaded_mcp_servers = required_servers
+        try:
+            mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
+            loaded_mcp_servers = required_servers
+        except RuntimeError as exc:
+            print(f"\nFehler beim Laden des Tool-Sets '{toolset['label']}': {exc}")
+            toolset = TOOLSET_OPTIONS["0"]
+            mcp_tools = []
+            loaded_mcp_servers = set()
 
     history: list[Any] = []
 
@@ -306,7 +319,11 @@ def main() -> None:
         "Befehle: /exit beendet, /tools wechselt Tool-Set."
     )
     while True:
-        question = _read_question()
+        try:
+            question = _read_question()
+        except KeyboardInterrupt:
+            print("\nBeendet (KeyboardInterrupt).")
+            break
         if not question:
             continue
         if question.lower() in {"/exit", "exit", "quit"}:
@@ -324,8 +341,14 @@ def main() -> None:
                     _ensure_server_is_reachable(DEFAULT_PHYSICS_SERVER, "mcp-physics")
                 if "postdoc" in required_servers:
                     _ensure_server_is_reachable(DEFAULT_POSTDOC_SERVER, "physik-postdoc")
-                mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
-                loaded_mcp_servers = required_servers
+                try:
+                    mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
+                    loaded_mcp_servers = required_servers
+                except RuntimeError as exc:
+                    print(f"\nFehler beim Laden des Tool-Sets '{toolset['label']}': {exc}")
+                    toolset = TOOLSET_OPTIONS["0"]
+                    mcp_tools = []
+                    loaded_mcp_servers = set()
             if not required_servers:
                 loaded_mcp_servers = set()
             print(f"\nAktives Tool-Set: {toolset['label']}")

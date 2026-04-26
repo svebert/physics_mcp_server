@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import httpx
 import pytest
 
@@ -48,3 +51,24 @@ def test_toolset_options_match_expected_modes() -> None:
     }
     assert langchain_chat.TOOLSET_OPTIONS["2"]["tools"] == ["websearch"]
     assert "websearch" in langchain_chat.TOOLSET_OPTIONS["5"]["tools"]
+
+
+def test_build_mcp_tools_wraps_session_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyClient:
+        def __init__(self, _server_map: dict[str, dict[str, str]]) -> None:
+            self.closed = False
+
+        async def get_tools(self) -> list[object]:
+            raise RuntimeError("Session terminated")
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    module = types.ModuleType("langchain_mcp_adapters.client")
+    module.MultiServerMCPClient = DummyClient
+    monkeypatch.setitem(sys.modules, "langchain_mcp_adapters.client", module)
+
+    with pytest.raises(RuntimeError, match="Failed to initialize MCP tools"):
+        import asyncio
+
+        asyncio.run(langchain_chat._build_mcp_tools(["postdoc"]))

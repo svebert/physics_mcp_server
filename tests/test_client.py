@@ -56,3 +56,4 @@ def test_toolset_options_include_new_postdoc_modes() -> None:
     assert "3" in langchain_chat.TOOLSET_OPTIONS
     assert langchain_chat.TOOLSET_OPTIONS["2"]["label"] == "physics post doc"
     assert "web_search" in langchain_chat.TOOLSET_OPTIONS["3"]["tools"]
+

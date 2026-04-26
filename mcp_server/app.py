@@ -227,8 +227,19 @@ app.mount("/mcp", mcp.streamable_http_app())
 def run() -> None:
     host = os.getenv("PHYSICS_MCP_HOST", "0.0.0.0")
     port = int(os.getenv("PHYSICS_MCP_PORT", "8080"))
-    logger.info("Starting physics-mcp server", extra={"host": host, "port": port})
-    uvicorn.run("mcp_server.app:app", host=host, port=port, log_level="info", log_config=LOG_CONFIG)
+    log_level = os.getenv("PHYSICS_MCP_LOG_LEVEL", "info")
+    logger.info(
+        "Starting physics-mcp server",
+        extra={"host": host, "port": port, "reload": False, "log_level": log_level},
+    )
+    uvicorn.run(
+        "mcp_server.app:app",
+        host=host,
+        port=port,
+        log_level=log_level,
+        log_config=LOG_CONFIG,
+        reload=False,
+    )
 
 
 if __name__ == "__main__":

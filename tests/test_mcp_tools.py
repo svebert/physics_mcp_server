@@ -33,6 +33,20 @@ def test_solve_tool_integration() -> None:
     assert result["max_bending_moment_nm"] > 0
     assert len(result["x_m"]) == len(result["moment_nm"]) == len(result["deflection_m"])
 
+
+def test_solve_tool_accepts_flat_keyword_arguments() -> None:
+    result = solve_beam_case_tool(
+        case="simply_supported_point",
+        length_m=6.0,
+        youngs_modulus_pa=210e9,
+        second_moment_m4=8.5e-6,
+        point_load_n=12_000.0,
+        point_load_position_m=3.0,
+    )
+    assert result["case"] == "simply_supported_point"
+    assert result["reactions_n"]["left"] == 6000.0
+    assert result["reactions_n"]["right"] == 6000.0
+
 def test_dev_tool_returns_422_on_invalid_payload() -> None:
     client = TestClient(app)
     response = client.post("/dev/tools/solve_beam_case", json={"case": "simply_supported_point"})

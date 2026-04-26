@@ -147,9 +147,20 @@ def _normalize_solve_beam_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool()
-def solve_beam_case_tool(payload: dict[str, Any]) -> dict[str, Any]:
-    """Solve one beam case from physics_core v0.1."""
-    data = BeamInput.model_validate(_normalize_solve_beam_payload(payload))
+def solve_beam_case_tool(
+    payload: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Solve one beam case from physics_core v0.1.
+
+    Accepts either:
+    - `payload={...}` (canonical shape)
+    - flat keyword arguments (LLM/MCP adapter compatibility)
+    """
+    raw_payload = payload if isinstance(payload, dict) else {}
+    if kwargs:
+        raw_payload = {**raw_payload, **kwargs}
+    data = BeamInput.model_validate(_normalize_solve_beam_payload(raw_payload))
     result = solve_beam_case(data)
     return result.model_dump()
 

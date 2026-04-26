@@ -217,10 +217,26 @@ Der Dev-Tool-Endpunkt normalisiert außerdem häufige Kurzschreibweisen aus LLM-
 ## Run the smarter MCP server locally
 
 ```bash
+# once per venv:
+pip install -e '.[dev]'
+
 physics-smart-mcp-server
 # or
 python3 -m smart_mcp_server.app
 ```
+
+Wenn `physics-smart-mcp-server: command not found` oder
+`ModuleNotFoundError: No module named 'smart_mcp_server'` erscheint:
+
+1. Stelle sicher, dass du im Repo-Root bist (dort, wo `pyproject.toml` liegt).
+2. Installiere das Projekt im aktiven venv neu:
+   ```bash
+   pip install -e '.[dev]'
+   ```
+3. Prüfe, ob das Skript vorhanden ist:
+   ```bash
+   which physics-smart-mcp-server
+   ```
 
 Example request:
 
@@ -249,7 +265,12 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-This creates a small single-service deployment suitable for home-server use. Uvicorn runs in production mode (no debug reload). Put a reverse proxy (Caddy/Nginx/Traefik) in front later for TLS and public exposure.
+This creates a small two-service deployment:
+
+- `physics-mcp` on `:8080`
+- `physics-smart-mcp` on `:8090`
+
+Both services run in their own Docker bridge network (`physics-mcp-net`). The smart server resolves the base server internally via `http://physics-mcp:8080`. Uvicorn runs in production mode (no debug reload). Put a reverse proxy (Caddy/Nginx/Traefik) in front later for TLS and public exposure.
 
 ## Public exposure later (recommended)
 

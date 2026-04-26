@@ -39,11 +39,13 @@ Arbeite strikt so:
 4) Gib Ergebnisse mit Einheit, Plausibilitätsprüfung und klaren Annahmen aus.
 
 Tool-Anweisung für mcp-physics:
-- Nutze `get_supported_cases_tool` bei Unsicherheit über Lastfälle.
+- Nutze `get_supported_cases_tool` nur bei echter Unsicherheit über Lastfälle (maximal 1x pro Frage).
 - Nutze `get_model_assumptions_tool` für Modellgrenzen.
-- Nutze `solve_beam_case_tool` mit einem payload-Objekt und SI-Feldern:
-  case, length_m, youngs_modulus_pa,
-  second_moment_m4, optional point_load_n, point_load_position_m, udl_n_per_m, samples.
+- Nutze `solve_beam_case_tool` bevorzugt genau 1x pro Frage und dann direkt die Ergebnisformulierung.
+- Verwende für `solve_beam_case_tool` bevorzugt dieses Format:
+  {"payload": {"case": "...", "length_m": ..., "youngs_modulus_pa": ..., "second_moment_m4": ..., "point_load_n": ..., "point_load_position_m": ...}}
+  (Flat-Argumente ohne `payload` sind nur Fallback.)
+- Unterstützte Fälle: simply_supported_point, simply_supported_udl, cantilever_point, cantilever_udl.
 - Bei nicht-SI Eingaben (kN, GPa, mm^4, cm, ...) immer vor Tool-Call nach SI konvertieren.
 - Bei mehrsprachigen Eingaben Begriffe robust auf Tool-Felder mappen.
 - Bei inkonsistenten Einheiten zuerst aktiv klären, dann rechnen.

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
@@ -45,6 +46,7 @@ DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini
 DEFAULT_PHYSICS_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
 DEFAULT_POSTDOC_SERVER = os.getenv("SMART_MCP_URL", "http://127.0.0.1:8090")
 MAX_TOOL_ROUNDS = int(os.getenv("PHYSICS_CLIENT_MAX_TOOL_ROUNDS", "12"))
+MAX_LOG_PAYLOAD_CHARS = int(os.getenv("PHYSICS_CLIENT_MAX_LOG_PAYLOAD_CHARS", "2000"))
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
     "0": {"label": "none", "tools": [], "mcp_servers": [], "system_prompt": None},
@@ -439,6 +441,11 @@ def main() -> None:
         repeated_rounds = 0
         while getattr(response, "tool_calls", None):
             tool_round += 1
+            logger.debug(
+                "client-tool-round round=%d tool_calls=%s",
+                tool_round,
+                json.dumps(response.tool_calls, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+            )
             if tool_round > MAX_TOOL_ROUNDS:
                 print(
                     "\nAbbruch: Zu viele aufeinanderfolgende Tool-Aufrufe erkannt "
@@ -492,8 +499,15 @@ def main() -> None:
                     }
                 else:
                     try:
+                        started = time.perf_counter()
                         logger.info("Invoking tool '%s' with args=%s", tool_name, tool_args)
                         tool_result = _invoke_tool(tool_impl, tool_args)
+                        logger.debug(
+                            "Tool '%s' result after %.2fms: %s",
+                            tool_name,
+                            (time.perf_counter() - started) * 1_000,
+                            json.dumps(tool_result, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+                        )
                     except Exception as exc:  # pragma: no cover - defensive wrapper for interactive loop
                         logger.exception("Tool execution failed for '%s'", tool_name)
                         tool_result = {

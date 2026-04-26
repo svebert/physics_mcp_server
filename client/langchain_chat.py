@@ -25,65 +25,40 @@ def _load_env() -> None:
 _load_env()
 DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
 DEFAULT_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-DEFAULT_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
-
-PHYSICS_POSTDOC_CONTEXT = """
-Du bist ein Physik- und Ingenieurwesen-Postdoc und bearbeitest MINT-Anfragen in jeder Sprache.
-Arbeite strikt so:
-1) Prüfe zuerst, ob alle nötigen Informationen für eine belastbare Lösung vorhanden sind.
-2) Falls Informationen fehlen, frage kurz nach oder recherchiere zunächst selbst über verfügbare Tools.
-3) Prüfe Einheiten systematisch und vereinheitliche intern auf SI, bevor du rechnest.
-4) Gib Ergebnisse mit Einheit, Plausibilitätsprüfung und klaren Annahmen aus.
-""".strip()
-
-PHYSICS_MCP_TOOL_INSTRUCTION = """
-Nutzung der mcp-physics Tools:
-- Verwende `get_supported_cases_tool` bevor du unsicher über Lastfall-Namen bist.
-- Verwende `get_model_assumptions_tool`, wenn Grenzen/Annahmen relevant sind.
-- Verwende `solve_beam_case_tool` nur mit diesen SI-Feldern:
-  case, length_m, youngs_modulus_pa, second_moment_m4, optional point_load_n,
-  point_load_position_m, udl_n_per_m, samples.
-- Wenn Nutzer in anderer Sprache schreibt: mappe Begriffe robust auf die Tool-Felder.
-- Wenn Nutzer in nicht-SI schreibt (z.B. kN, GPa, mm^4), konvertiere vor Tool-Call nach SI
-  und erwähne Konvertierung in der Antwort.
-- Nutze nur physikalisch konsistente Einheiten; bei Widersprüchen zuerst klären.
-""".strip()
-
+DEFAULT_PHYSICS_SERVER = os.getenv("PHYSICS_MCP_URL", "http://127.0.0.1:8080")
+DEFAULT_POSTDOC_SERVER = os.getenv("SMART_MCP_URL", "http://127.0.0.1:8090")
 
 TOOLSET_OPTIONS: dict[str, dict[str, Any]] = {
-    "0": {"label": "none", "tools": [], "needs_mcp": False, "system_prompt": None},
+    "0": {"label": "none", "tools": [], "mcp_servers": [], "system_prompt": None},
     "1": {
         "label": "mcp-physics",
         "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool"],
-        "needs_mcp": True,
+        "mcp_servers": ["physics"],
         "system_prompt": None,
     },
     "2": {
         "label": "websearch",
         "tools": ["websearch"],
-        "needs_mcp": False,
+        "mcp_servers": [],
         "system_prompt": None,
     },
     "3": {
         "label": "mcp-physics + websearch",
         "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool", "websearch"],
-        "needs_mcp": True,
+        "mcp_servers": ["physics"],
         "system_prompt": None,
     },
     "4": {
         "label": "physik-postdoc",
-        "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool"],
-        "needs_mcp": True,
-        "system_prompt": f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}",
+        "tools": ["ask_postdoc_tool"],
+        "mcp_servers": ["postdoc"],
+        "system_prompt": None,
     },
     "5": {
         "label": "physik-postdoc + websearch",
-        "tools": ["solve_beam_case_tool", "get_supported_cases_tool", "get_model_assumptions_tool", "websearch"],
-        "needs_mcp": True,
-        "system_prompt": (
-            f"{PHYSICS_POSTDOC_CONTEXT}\n\n{PHYSICS_MCP_TOOL_INSTRUCTION}\n\n"
-            "Nutze zusätzlich Web-Recherche, wenn Wissen nicht sicher oder aktuell ist."
-        ),
+        "tools": ["ask_postdoc_tool", "websearch"],
+        "mcp_servers": ["postdoc"],
+        "system_prompt": None,
     },
 }
 
@@ -105,20 +80,20 @@ def _resolve_api_key(provider: str) -> str | None:
     return None
 
 
-def _ensure_server_is_reachable() -> None:
+def _ensure_server_is_reachable(server_url: str, server_name: str) -> None:
     try:
         with httpx.Client(timeout=5) as client:
-            response = client.get(f"{DEFAULT_SERVER}/health")
+            response = client.get(f"{server_url}/health")
     except httpx.HTTPError as exc:
         raise RuntimeError(
-            "Physics MCP server is not reachable. "
-            f"Start it first (e.g. `physics-mcp-server`) or set PHYSICS_MCP_URL correctly. "
-            f"Current URL: {DEFAULT_SERVER}. Original error: {exc}"
+            f"{server_name} server is not reachable. "
+            "Start it first and check your URL env vars. "
+            f"Current URL: {server_url}. Original error: {exc}"
         ) from exc
     if not response.is_success:
         raise RuntimeError(
-            "Physics MCP server health check failed with "
-            f"HTTP {response.status_code} at {DEFAULT_SERVER}/health. "
+            f"{server_name} server health check failed with "
+            f"HTTP {response.status_code} at {server_url}/health. "
             "Start/restart the server and try again."
         )
 
@@ -218,7 +193,7 @@ def _build_web_search_tool() -> Any:
     return websearch
 
 
-async def _build_mcp_tools() -> tuple[Any, list[Any]]:
+async def _build_mcp_tools(selected_servers: list[str]) -> tuple[Any, list[Any]]:
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
     except ImportError as exc:
@@ -236,14 +211,18 @@ Install matching versions (for this project: `langchain-mcp-adapters>=0.2,<0.3`)
             "for example with `pip install -e '.[dev]'`."
         ) from exc
 
-    client = MultiServerMCPClient(
-        {
-            "physics": {
-                "url": f"{DEFAULT_SERVER}/mcp",
-                "transport": "streamable_http",
-            }
+    server_map: dict[str, dict[str, str]] = {}
+    if "physics" in selected_servers:
+        server_map["physics"] = {
+            "url": f"{DEFAULT_PHYSICS_SERVER}/mcp",
+            "transport": "streamable_http",
         }
-    )
+    if "postdoc" in selected_servers:
+        server_map["postdoc"] = {
+            "url": f"{DEFAULT_POSTDOC_SERVER}/mcp",
+            "transport": "streamable_http",
+        }
+    client = MultiServerMCPClient(server_map)
     tools = await client.get_tools()
     return client, tools
 
@@ -306,12 +285,18 @@ def main() -> None:
     web_tool = _build_web_search_tool()
     mcp_client: Any | None = None
     mcp_tools: list[Any] = []
+    loaded_mcp_servers: set[str] = set()
 
     toolset_key = _select_toolset_interactive()
     toolset = TOOLSET_OPTIONS[toolset_key]
-    if toolset["needs_mcp"]:
-        _ensure_server_is_reachable()
-        mcp_client, mcp_tools = asyncio.run(_build_mcp_tools())
+    required_servers = set(toolset["mcp_servers"])
+    if required_servers:
+        if "physics" in required_servers:
+            _ensure_server_is_reachable(DEFAULT_PHYSICS_SERVER, "mcp-physics")
+        if "postdoc" in required_servers:
+            _ensure_server_is_reachable(DEFAULT_POSTDOC_SERVER, "physik-postdoc")
+        mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
+        loaded_mcp_servers = required_servers
 
     history: list[Any] = []
 
@@ -329,9 +314,20 @@ def main() -> None:
         if question.lower() == "/tools":
             toolset_key = _select_toolset_interactive()
             toolset = TOOLSET_OPTIONS[toolset_key]
-            if toolset["needs_mcp"] and not mcp_tools:
-                _ensure_server_is_reachable()
-                mcp_client, mcp_tools = asyncio.run(_build_mcp_tools())
+            required_servers = set(toolset["mcp_servers"])
+            if required_servers and required_servers != loaded_mcp_servers:
+                if mcp_client is not None:
+                    close_fn = getattr(mcp_client, "aclose", None)
+                    if callable(close_fn):
+                        asyncio.run(close_fn())
+                if "physics" in required_servers:
+                    _ensure_server_is_reachable(DEFAULT_PHYSICS_SERVER, "mcp-physics")
+                if "postdoc" in required_servers:
+                    _ensure_server_is_reachable(DEFAULT_POSTDOC_SERVER, "physik-postdoc")
+                mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
+                loaded_mcp_servers = required_servers
+            if not required_servers:
+                loaded_mcp_servers = set()
             print(f"\nAktives Tool-Set: {toolset['label']}")
             continue
 

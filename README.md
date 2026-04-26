@@ -99,7 +99,8 @@ pip install -e '.[dev,anthropic]'
 - `LLM_API_KEY`: recommended, provider-agnostic API key variable for the client.
 - `OPENAI_API_KEY`: backward-compatible fallback for OpenAI usage.
 - `OPENAI_MODEL`: backward-compatible fallback model variable.
-- `PHYSICS_MCP_URL`: optional for client (default: `http://127.0.0.1:8080`).
+- `PHYSICS_MCP_URL`: URL von `mcp-physics` (default: `http://127.0.0.1:8080`).
+- `SMART_MCP_URL`: URL von `smart-mcp-server` / `physik-postdoc` (default: `http://127.0.0.1:8090`).
 - `PHYSICS_MCP_HOST`: server bind host (default: `0.0.0.0`).
 - `PHYSICS_MCP_PORT`: server port (default: `8080`).
 
@@ -216,6 +217,7 @@ The client uses **LangChain chat models** and supports these Tool-Sets:
 Wichtig: Für vollständige Funktionalität des Test-Clients mit den Modi `mcp-physics`, `physik-postdoc` und deren Websearch-Kombinationen müssen `mcp-physics` **und** `smart-mcp-server` parallel laufen.
 
 `mcp-physics` modes now use a real MCP client adapter against `PHYSICS_MCP_URL/mcp` (streamable HTTP) instead of the `/dev/tools/...` helper route.
+`physik-postdoc` modes nutzen das eigenständige Tool `ask_postdoc_tool` über `SMART_MCP_URL/mcp`.
 
 The `websearch` tool currently uses DuckDuckGo's free instant-answer endpoint and does not need an API key.
 

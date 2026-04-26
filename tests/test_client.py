@@ -16,7 +16,7 @@ def test_ensure_server_is_reachable_raises_runtime_error_on_health_failure(
     monkeypatch.setattr(httpx.Client, "get", _raise_connect_error)
 
     with pytest.raises(RuntimeError, match="not reachable"):
-        langchain_chat._ensure_server_is_reachable()
+        langchain_chat._ensure_server_is_reachable("http://127.0.0.1:8080", "mcp-physics")
 
 
 def test_resolve_api_key_prefers_generic_llm_api_key(monkeypatch: pytest.MonkeyPatch) -> None:

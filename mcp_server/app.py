@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
@@ -160,26 +161,48 @@ def solve_beam_case_tool(
     raw_payload = payload if isinstance(payload, dict) else {}
     if kwargs:
         raw_payload = {**raw_payload, **kwargs}
-    data = BeamInput.model_validate(_normalize_solve_beam_payload(raw_payload))
+    normalized_payload = _normalize_solve_beam_payload(raw_payload)
+    logger.debug(
+        "tool-call solve_beam_case_tool payload=%s normalized=%s",
+        json.dumps(raw_payload, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+        json.dumps(normalized_payload, ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS],
+    )
+    data = BeamInput.model_validate(normalized_payload)
     result = solve_beam_case(data)
+    logger.debug(
+        "tool-result solve_beam_case_tool summary=%s",
+        json.dumps(
+            {
+                "case": result.case,
+                "max_bending_moment_nm": result.max_bending_moment_nm,
+                "max_deflection_m": result.max_deflection_m,
+                "samples": len(result.x_m),
+            },
+            ensure_ascii=False,
+        )[:MAX_LOG_PAYLOAD_CHARS],
+    )
     return result.model_dump()
 
 
 @mcp.tool()
 def get_supported_cases_tool() -> list[str]:
     """Return supported case identifiers for v0.1 beam solver."""
-    return get_supported_cases()
+    cases = get_supported_cases()
+    logger.debug("tool-call get_supported_cases_tool result=%s", json.dumps(cases, ensure_ascii=False))
+    return cases
 
 
 @mcp.tool()
 def get_model_assumptions_tool() -> list[str]:
     """Return physics assumptions and model limits."""
+    logger.debug("tool-call get_model_assumptions_tool count=%d", len(ASSUMPTIONS_V1))
     return ASSUMPTIONS_V1
 
 
 LOG_LEVEL_NAME = os.getenv("PHYSICS_MCP_LOG_LEVEL", "info").strip().lower()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME.upper(), logging.INFO)
 LOG_CONFIG = configure_logging(service_name="physics-mcp", app_logger_name="physics-mcp", level=LOG_LEVEL)
+MAX_LOG_PAYLOAD_CHARS = int(os.getenv("PHYSICS_MCP_MAX_LOG_PAYLOAD_CHARS", "2000"))
 
 mcp_http_app = mcp.streamable_http_app()
 

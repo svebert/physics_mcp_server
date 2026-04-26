@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import json
+import os
 import time
+import uuid
 from collections import defaultdict
 
 from fastapi import Request
@@ -15,6 +17,7 @@ class RateLimitHook:
     def __init__(self, logger_name: str = "physics-mcp") -> None:
         self._counter: dict[str, int] = defaultdict(int)
         self._logger = logging.getLogger(logger_name)
+        self._max_payload_chars = int(os.getenv("PHYSICS_MCP_MAX_LOG_PAYLOAD_CHARS", "2000"))
 
     async def _read_request_body(self, request: Request) -> bytes:
         original_receive = request._receive  # type: ignore[attr-defined]
@@ -52,8 +55,14 @@ class RateLimitHook:
         except (UnicodeDecodeError, json.JSONDecodeError):
             return body.decode("utf-8", errors="replace")
 
+    def _truncate(self, payload: str) -> str:
+        if len(payload) <= self._max_payload_chars:
+            return payload
+        return f"{payload[:self._max_payload_chars]}...<truncated {len(payload) - self._max_payload_chars} chars>"
+
     async def __call__(self, request: Request, call_next):
         client = request.client.host if request.client else "unknown"
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
         self._counter[client] += 1
         start = time.perf_counter()
         debug_enabled = self._logger.isEnabledFor(logging.DEBUG)
@@ -66,31 +75,34 @@ class RateLimitHook:
         elapsed_ms = (time.perf_counter() - start) * 1_000
         response.headers["X-Request-Time-Ms"] = f"{elapsed_ms:.2f}"
         response.headers["X-RateLimit-Hook"] = "enabled"
+        response.headers["X-Request-Id"] = request_id
 
         if debug_enabled:
             content_type = response.headers.get("content-type", "")
             if "text/event-stream" in content_type:
                 self._logger.debug(
-                    "HTTP debug | method=%s path=%s client=%s status=%s elapsed_ms=%.2f request=%s response=<skipped stream>",
+                    "HTTP debug | request_id=%s method=%s path=%s client=%s status=%s elapsed_ms=%.2f request=%s response=<skipped stream>",
+                    request_id,
                     request.method,
                     request.url.path,
                     client,
                     response.status_code,
                     elapsed_ms,
-                    self._decode_body(request_body),
+                    self._truncate(self._decode_body(request_body)),
                 )
             else:
                 body_chunks = [chunk async for chunk in response.body_iterator]
                 response_body = b"".join(body_chunks)
                 self._logger.debug(
-                    "HTTP debug | method=%s path=%s client=%s status=%s elapsed_ms=%.2f request=%s response=%s",
+                    "HTTP debug | request_id=%s method=%s path=%s client=%s status=%s elapsed_ms=%.2f request=%s response=%s",
+                    request_id,
                     request.method,
                     request.url.path,
                     client,
                     response.status_code,
                     elapsed_ms,
-                    self._decode_body(request_body),
-                    self._decode_body(response_body),
+                    self._truncate(self._decode_body(request_body)),
+                    self._truncate(self._decode_body(response_body)),
                 )
                 response = Response(
                     content=response_body,

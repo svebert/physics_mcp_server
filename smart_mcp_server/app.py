@@ -158,6 +158,20 @@ def _extract_text(response: Any) -> str:
     return str(content)
 
 
+def _summarize_messages(messages: list[Any], max_chars: int = MAX_LOG_PAYLOAD_CHARS) -> str:
+    summary: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.__class__.__name__
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            content = json.dumps(content, ensure_ascii=False)
+        summary.append({"role": role, "content": str(content)[:300]})
+    payload = json.dumps(summary, ensure_ascii=False)
+    if len(payload) <= max_chars:
+        return payload
+    return f"{payload[:max_chars]}...<truncated {len(payload)-max_chars} chars>"
+
+
 async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> str:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
@@ -189,8 +203,11 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
         enable_web_search,
         question[:MAX_LOG_PAYLOAD_CHARS],
     )
+    logger.debug("postdoc-trace selected-tools trace_id=%s tools=%s", trace_id, [tool.name for tool in tools])
     try:
+        logger.debug("postdoc-trace model-request trace_id=%s messages=%s", trace_id, _summarize_messages(request_messages))
         response = await current_model.ainvoke(request_messages)
+        logger.debug("postdoc-trace model-response trace_id=%s content=%s tool_calls=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS], json.dumps(getattr(response, "tool_calls", []), ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
         tool_round = 0
         previous_round_signatures: tuple[str, ...] = ()
         repeated_rounds = 0
@@ -264,7 +281,9 @@ async def run_postdoc_agent(question: str, enable_web_search: bool = True) -> st
                 history.append(ToolMessage(content=json.dumps(tool_result, ensure_ascii=False), tool_call_id=call["id"]))
 
             request_messages = [SystemMessage(content=POSTDOC_CONTEXT), *history]
+            logger.debug("postdoc-trace model-request trace_id=%s messages=%s", trace_id, _summarize_messages(request_messages))
             response = await current_model.ainvoke(request_messages)
+            logger.debug("postdoc-trace model-response trace_id=%s content=%s tool_calls=%s", trace_id, _extract_text(response)[:MAX_LOG_PAYLOAD_CHARS], json.dumps(getattr(response, "tool_calls", []), ensure_ascii=False)[:MAX_LOG_PAYLOAD_CHARS])
     finally:
         close_fn = getattr(mcp_client, "aclose", None)
         if callable(close_fn):

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import httpx
 from dotenv import load_dotenv
@@ -134,6 +135,10 @@ def _build_chat_model() -> Any:
 
 def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     max_results = max(1, min(max_results, 10))
+    news_results = _search_google_news_rss(query=query, max_results=max_results)
+    if news_results:
+        return {"ok": True, "query": query, "results": news_results}
+
     try:
         with httpx.Client(timeout=20) as client:
             response = client.get(
@@ -182,6 +187,40 @@ def _web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     return {"ok": True, "query": query, "results": results[:max_results]}
 
 
+def _search_google_news_rss(query: str, max_results: int) -> list[dict[str, str]]:
+    params = {
+        "q": query,
+        "hl": "de",
+        "gl": "DE",
+        "ceid": "DE:de",
+    }
+    try:
+        with httpx.Client(timeout=20) as client:
+            response = client.get("https://news.google.com/rss/search", params=params)
+            response.raise_for_status()
+    except httpx.HTTPError:
+        return []
+
+    try:
+        root = ElementTree.fromstring(response.text)
+    except ElementTree.ParseError:
+        return []
+
+    parsed: list[dict[str, str]] = []
+    for item in root.findall("./channel/item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        description = (item.findtext("description") or "").strip()
+        pub_date = (item.findtext("pubDate") or "").strip()
+        snippet = " ".join(part for part in (pub_date, description) if part)
+        if title and link:
+            parsed.append({"title": title, "url": link, "snippet": snippet})
+        if len(parsed) >= max_results:
+            break
+
+    return parsed
+
+
 def _build_web_search_tool() -> Any:
     from langchain_core.tools import tool
 
@@ -223,7 +262,16 @@ Install matching versions (for this project: `langchain-mcp-adapters>=0.2,<0.3`)
             "transport": "streamable_http",
         }
     client = MultiServerMCPClient(server_map)
-    tools = await client.get_tools()
+    try:
+        tools = await client.get_tools()
+    except Exception as exc:
+        close_fn = getattr(client, "aclose", None)
+        if callable(close_fn):
+            await close_fn()
+        raise RuntimeError(
+            "Failed to initialize MCP tools. Ensure the selected MCP server is running and "
+            f"supports streamable HTTP. selected_servers={selected_servers!r}, error={exc}"
+        ) from exc
     return client, tools
 
 
@@ -295,8 +343,14 @@ def main() -> None:
             _ensure_server_is_reachable(DEFAULT_PHYSICS_SERVER, "mcp-physics")
         if "postdoc" in required_servers:
             _ensure_server_is_reachable(DEFAULT_POSTDOC_SERVER, "physik-postdoc")
-        mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
-        loaded_mcp_servers = required_servers
+        try:
+            mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
+            loaded_mcp_servers = required_servers
+        except RuntimeError as exc:
+            print(f"\nFehler beim Laden des Tool-Sets '{toolset['label']}': {exc}")
+            toolset = TOOLSET_OPTIONS["0"]
+            mcp_tools = []
+            loaded_mcp_servers = set()
 
     history: list[Any] = []
 
@@ -306,7 +360,11 @@ def main() -> None:
         "Befehle: /exit beendet, /tools wechselt Tool-Set."
     )
     while True:
-        question = _read_question()
+        try:
+            question = _read_question()
+        except KeyboardInterrupt:
+            print("\nBeendet (KeyboardInterrupt).")
+            break
         if not question:
             continue
         if question.lower() in {"/exit", "exit", "quit"}:
@@ -324,8 +382,14 @@ def main() -> None:
                     _ensure_server_is_reachable(DEFAULT_PHYSICS_SERVER, "mcp-physics")
                 if "postdoc" in required_servers:
                     _ensure_server_is_reachable(DEFAULT_POSTDOC_SERVER, "physik-postdoc")
-                mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
-                loaded_mcp_servers = required_servers
+                try:
+                    mcp_client, mcp_tools = asyncio.run(_build_mcp_tools(sorted(required_servers)))
+                    loaded_mcp_servers = required_servers
+                except RuntimeError as exc:
+                    print(f"\nFehler beim Laden des Tool-Sets '{toolset['label']}': {exc}")
+                    toolset = TOOLSET_OPTIONS["0"]
+                    mcp_tools = []
+                    loaded_mcp_servers = set()
             if not required_servers:
                 loaded_mcp_servers = set()
             print(f"\nAktives Tool-Set: {toolset['label']}")

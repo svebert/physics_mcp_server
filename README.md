@@ -226,6 +226,20 @@ If a Tool-Set includes `physics-mcp`, the client checks `PHYSICS_MCP_URL` via `/
 If the model produces invalid tool arguments, the client returns structured tool errors back to the model so it can retry with corrected parameters instead of crashing.
 Der Dev-Tool-Endpunkt normalisiert außerdem häufige Kurzschreibweisen aus LLM-Tool-Calls (z. B. `l`/`e`/`i`, `point_load_kn`, `udl_kn_per_m`) und kann den Lastfall bei fehlendem `case` aus den Lastparametern ableiten.
 
+### Troubleshooting: `physik-postdoc` Tool-Set fällt auf `none` zurück
+
+Wenn beim Laden von `physik-postdoc` oder `physik-postdoc + websearch` ein Fehler zu
+`langchain-mcp-adapters`/`langchain-core` erscheint, kann der Client keine MCP-Tools
+initialisieren und schaltet deshalb auf Tool-Set `none` zurück. Dann beantwortet das Modell
+Fragen ohne Tool-Aufruf.
+
+Fix im aktiven venv:
+
+```bash
+pip install -U "langchain-core>=0.3.78,<0.4" "langchain-mcp-adapters>=0.2,<0.3"
+pip install -e '.[dev]'
+```
+
 ## Run the smarter MCP server locally
 
 ```bash

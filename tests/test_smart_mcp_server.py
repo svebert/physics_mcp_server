@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 
 from fastapi.testclient import TestClient
@@ -34,3 +35,50 @@ def test_mcp_endpoint_is_not_redirected() -> None:
     mounted_app = mount_routes[0].app
     mounted_paths = [route.path for route in mounted_app.routes]
     assert "/mcp" in mounted_paths
+
+
+def test_run_postdoc_agent_uses_async_tool_invocation(monkeypatch) -> None:
+    class _ToolCallingResponse:
+        tool_calls = [{"id": "call-1", "name": "ask_physics", "args": {"value": 3}}]
+        content = ""
+
+    class _FinalResponse:
+        tool_calls: list[dict[str, object]] = []
+        content = "Fertig"
+
+    class _FakeModel:
+        def __init__(self) -> None:
+            self._call_count = 0
+
+        def bind_tools(self, _tools):
+            return self
+
+        async def ainvoke(self, _messages):
+            self._call_count += 1
+            if self._call_count == 1:
+                return _ToolCallingResponse()
+            return _FinalResponse()
+
+    class _AsyncOnlyTool:
+        name = "ask_physics"
+
+        async def ainvoke(self, args):
+            return {"ok": True, "echo": args}
+
+        def invoke(self, _args):  # pragma: no cover - should never be called
+            raise AssertionError("sync invoke must not be used")
+
+    class _FakeClient:
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(smart_module, "_build_chat_model", lambda: _FakeModel())
+
+    async def _fake_build_physics_mcp_tools():
+        return _FakeClient(), [_AsyncOnlyTool()]
+
+    monkeypatch.setattr(smart_module, "_build_physics_mcp_tools", _fake_build_physics_mcp_tools)
+    monkeypatch.setattr(smart_module, "_build_tools", lambda enable_web_search: [])
+
+    answer = asyncio.run(smart_module.run_postdoc_agent("Testfrage", enable_web_search=False))
+    assert answer == "Fertig"

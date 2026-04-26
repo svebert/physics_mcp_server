@@ -350,7 +350,7 @@ def _extract_text(response: Any) -> str:
 
 
 def main() -> None:
-    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
     model = _build_chat_model()
     web_tool = _build_web_search_tool()
@@ -445,6 +445,13 @@ def main() -> None:
                     f"(Limit {MAX_TOOL_ROUNDS})."
                 )
                 logger.warning("Stopped response loop after max tool rounds (%d).", MAX_TOOL_ROUNDS)
+                response = AIMessage(
+                    content=(
+                        "Ich habe die Antwort abgebrochen, weil zu viele aufeinanderfolgende "
+                        "Tool-Aufrufe erkannt wurden. Bitte formuliere die Frage präziser "
+                        "oder reduziere den Tool-Bedarf."
+                    )
+                )
                 break
 
             current_round_signatures = tuple(
@@ -459,6 +466,13 @@ def main() -> None:
             if repeated_rounds >= 2:
                 print("\nAbbruch: Wiederholte identische Tool-Aufrufe erkannt (Loop-Schutz).")
                 logger.warning("Stopped response loop due to repeated tool-call rounds.")
+                response = AIMessage(
+                    content=(
+                        "Ich habe die Antwort abgebrochen, weil wiederholt identische "
+                        "Tool-Aufrufe erkannt wurden. Bitte stelle die Frage anders oder "
+                        "mit mehr Kontext."
+                    )
+                )
                 break
 
             history.append(response)

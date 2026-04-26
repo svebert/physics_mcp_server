@@ -90,3 +90,38 @@ def test_validate_langchain_mcp_versions_rejects_old_adapter(
 
     with pytest.raises(RuntimeError, match="too old"):
         langchain_chat._validate_langchain_mcp_versions()
+
+
+def test_main_replaces_unresolved_tool_call_response_after_loop_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _LoopingResponse:
+        tool_calls = [{"id": "call-1", "name": "missing_tool", "args": {"value": 3}}]
+        content = ""
+
+    class _FinalResponse:
+        tool_calls: list[dict[str, object]] = []
+        content = "Zweite Antwort"
+
+    class _FakeModel:
+        def __init__(self) -> None:
+            self._invoke_count = 0
+
+        def invoke(self, messages):
+            self._invoke_count += 1
+            if self._invoke_count == 4:
+                assert not getattr(messages[-2], "tool_calls", None)
+                return _FinalResponse()
+            return _LoopingResponse()
+
+    class _NoopTool:
+        name = "websearch"
+
+    questions = iter(["Erste Frage", "Zweite Frage", "/exit"])
+    monkeypatch.setattr(langchain_chat, "_build_chat_model", lambda: _FakeModel())
+    monkeypatch.setattr(langchain_chat, "_build_web_search_tool", lambda: _NoopTool())
+    monkeypatch.setattr(langchain_chat, "_select_toolset_interactive", lambda: "0")
+    monkeypatch.setattr(langchain_chat, "_read_question", lambda: next(questions))
+    monkeypatch.setattr(langchain_chat, "MAX_TOOL_ROUNDS", 8)
+
+    langchain_chat.main()
